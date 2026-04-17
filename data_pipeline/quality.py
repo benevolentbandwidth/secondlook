@@ -62,6 +62,34 @@ def quality_check(image: np.ndarray) -> tuple[bool, str]:
     return True, ""
 
 
+def quality_gate(img: np.ndarray) -> str:
+    """Augmentation-realism gate.
+
+    Run on an augmented image to decide whether it is realistic enough to
+    keep as a training sample. Distinct from `quality_check`: this gate
+    evaluates post-augmentation quality with a qualitative label instead of
+    a rejection boolean.
+
+    Checks sharpness (Laplacian variance), mean brightness extremes, and
+    the fraction of near-black pixels. Each failing check counts as one
+    issue; the label is the bucket the issue count falls into.
+
+    Returns:
+        'USABLE' (0 issues), 'BORDERLINE' (1), or 'UNUSABLE' (2+).
+    """
+    gray = img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    issues = 0
+    if cv2.Laplacian(gray, cv2.CV_64F).var() < 8:
+        issues += 1
+    if np.mean(gray) < 20:
+        issues += 1
+    if np.mean(gray) > 240:
+        issues += 1
+    if np.mean(gray < 15) > 0.75:
+        issues += 1
+    return 'USABLE' if issues == 0 else ('BORDERLINE' if issues == 1 else 'UNUSABLE')
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers (duplicated from preprocessor to avoid a circular import;
 # both modules need cheap grayscale + breast-mask primitives, and the

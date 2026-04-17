@@ -9,5 +9,11 @@ from .label_mapper import (
     display_label,
 )
 from .preprocessor import preprocess
-from .quality import quality_check
+from .quality import quality_check, quality_gate
 from .splitter import split_dataset, summarize_splits, save_splits
+from .augmentation import (
+    AUGMENTATIONS,
+    apply_random_combo,
+    normalize,
+    seed_rng,
+)
