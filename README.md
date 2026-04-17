@@ -1,14 +1,6 @@
-# Label Mapper
+# Second Look
 
-Simple utility to unify labels across 3 mammography datasets:
-- CBIS-DDSM
-- RSNA
-- VinDr
+Privacy-preserving, on-device mammogram analysis prototype.
 
----
-
-## Files
-
-- `label_mapper.py` → main mapping logic  
-- `label_mapping_demo.ipynb` → how to use it  
-- `*_metadata.csv` → sample data 
+See CLAUDE.md for architecture and design decisions.
+See `second_look_work_breakdown_structure.docx` for the 12-week plan.
