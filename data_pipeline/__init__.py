@@ -8,5 +8,6 @@ from .label_mapper import (
     confidence_to_tier,
     display_label,
 )
-from .preprocessor import preprocess, quality_check
+from .preprocessor import preprocess
+from .quality import quality_check
 from .splitter import split_dataset, summarize_splits, save_splits

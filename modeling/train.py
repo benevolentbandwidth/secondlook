@@ -5,52 +5,48 @@
 #   history = train_baseline(train_df, val_df, image_dir="data/images/")
 
 # What this does:
-#   1. Builds tf.data pipelines from split DataFrames
-#   2. Computes Elevated-biased class weights
-#   3. Trains with early stopping + LR reduction
+#   1. Builds tf.data pipelines from split DataFrames (binary labels)
+#   2. Computes positive-class-biased class weights
+#   3. Trains with early stopping + LR reduction on val_loss
 #   4. Saves the best checkpoint by val_loss
 
-# After training, run evaluate.py to check Elevated sensitivity before
-# considering the model usable.
+# After training, run evaluate.py to check WORTH_SECOND_LOOK sensitivity
+# before considering the model usable.
 
 import os
 import numpy as np
 import tensorflow as tf
 import pandas as pd
 
+from config.constants import INPUT_SIZE
 from modeling.baseline_classifier import (
     build_baseline,
     compute_class_weights,
-    TIER_ORDER,
-    INPUT_SIZE,
 )
-from data_pipeline.preprocessor import preprocess, quality_check
+from data_pipeline.preprocessor import preprocess
+from data_pipeline.quality import quality_check
 
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
 
 def train_baseline(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
     image_dir: str,
     image_col: str = "image_path",
-    tier_col: str = "concern_tier",
+    label_col: str = "label",
     input_size: tuple = INPUT_SIZE,
     batch_size: int = 32,
     max_epochs: int = 50,
     checkpoint_dir: str = "checkpoints/baseline",
     freeze_backbone: bool = True,
 ) -> tf.keras.callbacks.History:
-    """Train the baseline MobileNetV2 classifier.
+    """Train the baseline MobileNetV2 classifier with a binary head.
 
     Args:
         train_df: Training split DataFrame (from splitter.split_dataset).
         val_df: Validation split DataFrame.
         image_dir: Root directory containing image files.
         image_col: Column in DataFrames with image filenames or relative paths.
-        tier_col: Column in DataFrames with concern tier strings.
+        label_col: Column with binary labels (int 0 or 1).
         input_size: (height, width) passed to build_baseline and the data pipeline.
         batch_size: Training batch size.
         max_epochs: Maximum training epochs (early stopping will halt sooner).
@@ -62,17 +58,17 @@ def train_baseline(
     """
     os.makedirs(checkpoint_dir, exist_ok=True)
 
-    train_ds = _build_dataset(train_df, image_dir, image_col, tier_col, input_size, batch_size, shuffle=True)
-    val_ds = _build_dataset(val_df, image_dir, image_col, tier_col, input_size, batch_size, shuffle=False)
+    train_ds = _build_dataset(train_df, image_dir, image_col, label_col, input_size, batch_size, shuffle=True)
+    val_ds = _build_dataset(val_df, image_dir, image_col, label_col, input_size, batch_size, shuffle=False)
 
     model = build_baseline(input_size=input_size, freeze_backbone=freeze_backbone)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-        loss="sparse_categorical_crossentropy",
+        loss="binary_crossentropy",
         metrics=["accuracy"],
     )
 
-    class_weights = compute_class_weights(train_df[tier_col].tolist())
+    class_weights = compute_class_weights(list(train_df[label_col]))
 
     callbacks = _build_callbacks(checkpoint_dir)
 
@@ -97,13 +93,13 @@ def _build_dataset(
     df: pd.DataFrame,
     image_dir: str,
     image_col: str,
-    tier_col: str,
+    label_col: str,
     input_size: tuple,
     batch_size: int,
     shuffle: bool,
 ) -> tf.data.Dataset:
     paths = [os.path.join(image_dir, p) for p in df[image_col]]
-    labels = [TIER_ORDER.index(t) for t in df[tier_col]]
+    labels = [int(y) for y in df[label_col]]
 
     ds = tf.data.Dataset.from_tensor_slices((paths, labels))
 
@@ -135,6 +131,8 @@ def _load_and_preprocess(
         Tout=tf.float32,
     )
     image.set_shape((*input_size, 1))
+    # Binary head expects float32 labels.
+    label = tf.cast(label, tf.float32)
     return image, label
 
 

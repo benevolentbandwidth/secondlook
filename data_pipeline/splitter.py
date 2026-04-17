@@ -1,41 +1,37 @@
-# Reproducible train/validation/test splits
+# Reproducible train/validation/test splits.
 
-# Splits are stratified by concern tier (Low / Moderate / Elevated) so each
-# partition reflects the same class distribution as the full dataset.
+# Splits are stratified by the binary Second Look label so each partition
+# reflects the same positive/negative rate as the full dataset.
 
 # Default ratios: 70% train / 15% val / 15% test.
 # The random seed is fixed so splits are reproducible across runs and machines.
 
 # Usage:
 #   from data_pipeline.splitter import split_dataset
-#   train_df, val_df, test_df = split_dataset(df, tier_column="concern_tier")
+#   train_df, val_df, test_df = split_dataset(df)            # defaults to "label"
+#   train_df, val_df, test_df = split_dataset(df, label_column="my_col")
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-
-RANDOM_SEED = 42
-
-DEFAULT_TRAIN_RATIO = 0.70
-DEFAULT_VAL_RATIO = 0.15
-# Test ratio is the remainder: 1 - train - val = 0.15
+from config.constants import SEED, TRAIN_RATIO, VAL_RATIO
 
 
 def split_dataset(
     df: pd.DataFrame,
-    tier_column: str = "concern_tier",
-    train_ratio: float = DEFAULT_TRAIN_RATIO,
-    val_ratio: float = DEFAULT_VAL_RATIO,
-    seed: int = RANDOM_SEED,
+    label_column: str = "label",
+    train_ratio: float = TRAIN_RATIO,
+    val_ratio: float = VAL_RATIO,
+    seed: int = SEED,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Split a DataFrame into stratified train, validation, and test sets.
 
-    Stratification is by concern tier so that Low / Moderate / Elevated
+    Stratification is by the binary label column so that WORTH / NOT_WORTH
     proportions are preserved in every partition.
 
     Args:
-        df: Full dataset DataFrame. Must contain the tier_column.
-        tier_column: Name of the column holding concern tier strings.
+        df: Full dataset DataFrame. Must contain the label_column.
+        label_column: Name of the column holding the binary label (int 0/1).
         train_ratio: Fraction of data for training.
         val_ratio: Fraction of data for validation.
         seed: Random seed for reproducibility.
@@ -45,12 +41,12 @@ def split_dataset(
         each with a reset index.
 
     Raises:
-        ValueError: If ratios don't sum to <= 1.0, or tier_column is missing,
-                    or any tier class has fewer than 3 samples (can't stratify).
+        ValueError: If ratios don't sum to <= 1.0, or label_column is missing,
+                    or any label class has fewer than 3 samples (can't stratify).
     """
-    if tier_column not in df.columns:
+    if label_column not in df.columns:
         raise ValueError(
-            f"Column '{tier_column}' not found. Available columns: {list(df.columns)}"
+            f"Column '{label_column}' not found. Available columns: {list(df.columns)}"
         )
 
     test_ratio = round(1.0 - train_ratio - val_ratio, 10)
@@ -59,13 +55,13 @@ def split_dataset(
             f"train_ratio ({train_ratio}) + val_ratio ({val_ratio}) must be < 1.0"
         )
 
-    _check_class_sizes(df, tier_column)
+    _check_class_sizes(df, label_column)
 
     # First cut: split off test set.
     train_val_df, test_df = train_test_split(
         df,
         test_size=test_ratio,
-        stratify=df[tier_column],
+        stratify=df[label_column],
         random_state=seed,
     )
 
@@ -76,7 +72,7 @@ def split_dataset(
     train_df, val_df = train_test_split(
         train_val_df,
         test_size=val_ratio_adjusted,
-        stratify=train_val_df[tier_column],
+        stratify=train_val_df[label_column],
         random_state=seed,
     )
 
@@ -91,27 +87,30 @@ def summarize_splits(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
     test_df: pd.DataFrame,
-    tier_column: str = "concern_tier",
+    label_column: str = "label",
 ) -> pd.DataFrame:
-    """Return a DataFrame summarizing tier distribution across splits.
+    """Return a DataFrame summarizing label distribution across splits.
 
     Useful for verifying that stratification worked as expected before training.
 
     Args:
         train_df, val_df, test_df: Split DataFrames from split_dataset().
-        tier_column: Name of the tier column.
+        label_column: Name of the label column.
 
     Returns:
-        DataFrame with columns [tier, train_n, val_n, test_n, train_pct, val_pct, test_pct].
+        DataFrame with columns [label, train_n, val_n, test_n, train_pct, val_pct, test_pct].
     """
     rows = []
-    for tier in sorted(set(train_df[tier_column]) | set(val_df[tier_column]) | set(test_df[tier_column])):
-        train_n = (train_df[tier_column] == tier).sum()
-        val_n = (val_df[tier_column] == tier).sum()
-        test_n = (test_df[tier_column] == tier).sum()
+    all_labels = sorted(
+        set(train_df[label_column]) | set(val_df[label_column]) | set(test_df[label_column])
+    )
+    for lbl in all_labels:
+        train_n = (train_df[label_column] == lbl).sum()
+        val_n = (val_df[label_column] == lbl).sum()
+        test_n = (test_df[label_column] == lbl).sum()
         total = train_n + val_n + test_n
         rows.append({
-            "tier": tier,
+            "label": lbl,
             "train_n": train_n,
             "val_n": val_n,
             "test_n": test_n,
@@ -147,13 +146,13 @@ def save_splits(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _check_class_sizes(df: pd.DataFrame, tier_column: str) -> None:
-    """Raise if any tier class is too small to stratify into three splits."""
-    counts = df[tier_column].value_counts()
+def _check_class_sizes(df: pd.DataFrame, label_column: str) -> None:
+    """Raise if any label class is too small to stratify into three splits."""
+    counts = df[label_column].value_counts()
     too_small = counts[counts < 3]
     if not too_small.empty:
         raise ValueError(
-            f"The following tiers have fewer than 3 samples and cannot be "
+            f"The following labels have fewer than 3 samples and cannot be "
             f"stratified: {too_small.to_dict()}. "
-            "Collect more data or merge underrepresented tiers before splitting."
+            "Collect more data before splitting."
         )

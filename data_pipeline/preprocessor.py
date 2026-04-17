@@ -1,7 +1,6 @@
 # Preprocessing pipeline for Second Look.
 
-# Both model branches (Global ViT and Local CNN Detector) share the same
-# preprocessing steps. This module produces normalized arrays ready for training.
+# Produces normalized arrays ready for training / TF Lite inference.
 
 # Steps applied in order:
 #   1. Convert to grayscale (mammograms are single-channel)
@@ -13,12 +12,16 @@
 
 # Output shape: (H, W, 1) — single channel, float32.
 
+# Input-quality gating lives in data_pipeline.quality (quality_check).
+
 import cv2
 import numpy as np
 
+from config.constants import INPUT_SIZE
 
-# Default target size used by both branches. ViT patch size (16) divides evenly.
-DEFAULT_SIZE = (512, 512)
+
+# Default target size: MobileNetV2 / EfficientNetB0 standard input, per CLAUDE.md.
+DEFAULT_SIZE = INPUT_SIZE  # (224, 224)
 
 # CLAHE parameters. clipLimit controls contrast enhancement aggressiveness.
 # tileGridSize sets the local region size for histogram equalization.
@@ -54,53 +57,6 @@ def preprocess(image: np.ndarray, target_size: tuple = DEFAULT_SIZE) -> np.ndarr
     resized = cv2.resize(oriented, target_size, interpolation=cv2.INTER_AREA)
     normalized = resized.astype(np.float32) / 255.0
     return normalized[:, :, np.newaxis]  # (H, W, 1)
-
-
-def quality_check(image: np.ndarray) -> tuple[bool, str]:
-    """Gate to reject images that cannot be analyzed reliably.
-
-    Checks for:
-    - Sufficient breast tissue coverage (not mostly background)
-    - Minimum contrast (not overexposed or blank)
-    - Minimum resolution
-
-    Args:
-        image: Raw image array (grayscale or RGB).
-
-    Returns:
-        (True, "") if the image passes, or (False, reason_string) if rejected.
-        Callers must surface the reason string to the user — never silently discard.
-    """
-    if image is None or image.size == 0:
-        return False, "Image is empty or could not be loaded."
-
-    gray = _to_grayscale(image)
-
-    h, w = gray.shape
-    if h < 256 or w < 256:
-        return False, (
-            "Image resolution is too low for reliable analysis. "
-            "Please provide a clearer photo or scan."
-        )
-
-    mask = _breast_mask(gray)
-    tissue_fraction = mask.sum() / (255.0 * mask.size)
-    if tissue_fraction < 0.10:
-        return False, (
-            "Too little breast tissue detected. The image may be cropped, "
-            "overexposed, or not a mammogram. Please retake."
-        )
-
-    # Contrast check: std dev of tissue pixels should be meaningful.
-    tissue_pixels = gray[mask > 0]
-    if tissue_pixels.std() < 8.0:
-        return False, (
-            "Image contrast is too low for analysis. "
-            "This may be caused by glare, overexposure, or a very low-quality photo. "
-            "Please retake with better lighting."
-        )
-
-    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -224,11 +180,9 @@ def _find_pectoral_line(lines, roi_h: int, w: int):
 def _normalize_orientation(gray: np.ndarray, mask: np.ndarray) -> np.ndarray:
     """Flip the image so the breast always faces right.
 
-    ViT positional embeddings assume a fixed reference frame. Both CC and MLO
-    views should have the nipple pointing right after this step.
-
     Strategy: find the centroid of the breast mask. If it's in the left half,
-    flip horizontally.
+    flip horizontally. A fixed reference frame helps downstream models that
+    rely on positional embeddings.
     """
     moments = cv2.moments(mask)
     if moments["m00"] == 0:
