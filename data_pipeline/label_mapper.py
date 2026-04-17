@@ -156,3 +156,74 @@ def to_int(label: Label) -> int:
         where numeric targets are required.
     """
     return label.value
+
+
+# --- UX tier rendering (decoupled from model labels per CLAUDE.md) ---
+#
+# The model head is binary. The three tiers below are a UX-layer
+# presentation concern derived from model confidence, NOT from the model
+# output directly. Keeping these functions in the same module (but in a
+# clearly separated block) so the single call site
+# `display_label(confidence_to_tier(prob))` is discoverable without
+# importing from two places.
+
+VALID_TIERS = {"Low", "Moderate", "Elevated"}
+
+TIER_DISPLAY_LABELS = {
+    "Low": "Low Area of Interest",
+    "Moderate": "Moderate Area of Interest",
+    "Elevated": "Elevated Area of Interest",
+}
+
+
+def confidence_to_tier(prob: float) -> str:
+    """Map a positive-class probability to a UX concern tier.
+
+    PROVISIONAL THRESHOLDS — PLACEHOLDER PENDING CALIBRATION.
+    These cut-points (<0.33 → Low, <0.66 → Moderate, else Elevated) are
+    evenly-spaced defaults so the UI layer has something functional to
+    render during integration work. They are NOT clinically calibrated and
+    must be revisited once real validation data is available — the right
+    cuts will almost certainly be asymmetric (e.g., pushing the Elevated
+    threshold lower to favor sensitivity per the failure-mode hierarchy).
+
+    Args:
+        prob: Positive-class probability in [0.0, 1.0] — the sigmoid output
+              of the binary Second Look model.
+
+    Returns:
+        One of 'Low', 'Moderate', 'Elevated'.
+
+    Raises:
+        ValueError: If prob is outside [0.0, 1.0].
+    """
+    if not (0.0 <= prob <= 1.0):
+        raise ValueError(f"Probability out of range [0, 1]: {prob}")
+
+    if prob < 0.33:
+        return "Low"
+    if prob < 0.66:
+        return "Moderate"
+    return "Elevated"
+
+
+def display_label(tier: str) -> str:
+    """Return the UI-safe display label for a concern tier.
+
+    Use this whenever rendering tier text in the app or logs.
+    Never expose raw tier strings or clinical terms to the user.
+
+    Args:
+        tier: One of 'Low', 'Moderate', 'Elevated'.
+
+    Returns:
+        A calm, non-diagnostic display string.
+
+    Raises:
+        ValueError: If tier is not a valid concern tier.
+    """
+    if tier not in VALID_TIERS:
+        raise ValueError(
+            f"'{tier}' is not a valid concern tier. Expected one of: {sorted(VALID_TIERS)}"
+        )
+    return TIER_DISPLAY_LABELS[tier]
