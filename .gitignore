@@ -1,0 +1,62 @@
+# Credentials — never commit. Per CLAUDE.md ground rules.
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!**/fixtures/**/*.json
+service_account*.json
+service-account*.json
+gcs_credentials*.json
+gcp-*.json
+credentials.json
+*_credentials.json
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / editor
+.idea/
+.vscode/
+!.vscode/settings.json
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local data / model artifacts
+data/
+checkpoints/
+*.keras
+*.h5
+*.tflite
+*.pb
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Local-only project context (not shared with teammates or in PRs)
+CLAUDE.md
+claude.md
+memory/
