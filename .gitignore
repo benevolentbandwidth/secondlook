@@ -59,3 +59,4 @@ checkpoints/
 # Local-only project context (not shared with teammates or in PRs)
 CLAUDE.md
 claude.md
+memory/

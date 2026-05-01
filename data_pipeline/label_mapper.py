@@ -26,9 +26,9 @@
 #       cancer = 0 → NOT_WORTH_SECOND_LOOK
 #
 #   VinDr-Mammo (BI-RADS-based):
-#       BI-RADS 1–2 → NOT_WORTH_SECOND_LOOK
-#       BI-RADS 3–6 → WORTH_SECOND_LOOK
-#       (BI-RADS 3 included to prioritize sensitivity)
+#       BI-RADS 1–3 → NOT_WORTH_SECOND_LOOK
+#       BI-RADS 4–5 → WORTH_SECOND_LOOK
+#       (Matches the INbreast rule; unified across BI-RADS datasets.)
 
 # Safety note:
 #   Unknown labels raise ValueError rather than defaulting silently.
@@ -97,10 +97,13 @@ def map_rsna(cancer: int) -> Label:
 # --- VinDr ---
 def map_vindr(birads) -> Label:
     """
-    Map BI-RADS (e.g. 'BI-RADS 3') to Label.
+    Map BI-RADS (e.g. 'BI-RADS 4') to Label.
 
-    BI-RADS ≥ 3 → WORTH_SECOND_LOOK
-    BI-RADS ≤ 2 → NOT_WORTH_SECOND_LOOK
+    BI-RADS 4–5 → WORTH_SECOND_LOOK
+    BI-RADS 1–3 → NOT_WORTH_SECOND_LOOK
+
+    Unified with the INbreast rule so BI-RADS datasets share a single
+    binary cut-point.
     """
     # Handle string format like "BI-RADS 4"
     if isinstance(birads, str):
@@ -113,8 +116,30 @@ def map_vindr(birads) -> Label:
     if birads < 0 or birads > 6:
         raise ValueError(f"Invalid BI-RADS value: {birads}. Expected 0–6.")
 
-    # Decision threshold (>=3)
-    return Label.WORTH_SECOND_LOOK if birads >= 3 else Label.NOT_WORTH_SECOND_LOOK
+    return Label.WORTH_SECOND_LOOK if birads >= 4 else Label.NOT_WORTH_SECOND_LOOK
+
+
+# --- INbreast ---
+# Project decision: BI-RADS 1–3 → NOT_WORTH, 4–5 → WORTH.
+# This is stricter than the VinDr rule (which places BI-RADS 3 on the WORTH side)
+# and is specific to INbreast per the project owner.
+def map_inbreast(birads) -> Label:
+    """
+    Map INbreast BI-RADS (int or 'BI-RADS N' string) to Label.
+
+    BI-RADS 4–5 → WORTH_SECOND_LOOK
+    BI-RADS 1–3 → NOT_WORTH_SECOND_LOOK
+    """
+    if isinstance(birads, str):
+        digits = "".join(filter(str.isdigit, birads))
+        if not digits:
+            raise ValueError(f"Invalid BI-RADS string: {birads}")
+        birads = int(digits)
+
+    if birads not in (1, 2, 3, 4, 5):
+        raise ValueError(f"Invalid INbreast BI-RADS value: {birads}. Expected 1–5.")
+
+    return Label.WORTH_SECOND_LOOK if birads >= 4 else Label.NOT_WORTH_SECOND_LOOK
 
 
 def map_dataset(dataset: str, value) -> Label:
@@ -122,7 +147,7 @@ def map_dataset(dataset: str, value) -> Label:
     Map a dataset-specific label to the unified Label.
 
     Args:
-        dataset: One of {'cbis', 'rsna', 'vindr'}.
+        dataset: One of {'cbis', 'rsna', 'vindr', 'inbreast'}.
         value: Raw label value for that dataset.
 
     Returns:
@@ -139,6 +164,8 @@ def map_dataset(dataset: str, value) -> Label:
         return map_rsna(value)
     elif dataset == "vindr":
         return map_vindr(value)
+    elif dataset == "inbreast":
+        return map_inbreast(value)
     else:
         # Explicit failure for unknown dataset
         raise ValueError(f"Unknown dataset: {dataset}")
