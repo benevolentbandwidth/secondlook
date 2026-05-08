@@ -1,0 +1,30 @@
+# Dataset source configuration for manifest-first data builds.
+# Replace bucket/prefix/metadata URIs with real values when access is granted.
+
+datasets:
+  cbis:
+    bucket: "REPLACE_WITH_BUCKET_NAME"
+    metadata_gcs_uri: "gs://REPLACE_WITH_BUCKET_NAME/cbis/metadata.csv"
+    metadata_local_path: "tests/fixtures/cbis_ddsm_metadata.csv"
+    columns:
+      patient_id: "patient_id"
+      raw_label: "pathology"
+      source_ref: "image file path"
+
+  rsna:
+    bucket: "REPLACE_WITH_BUCKET_NAME"
+    metadata_gcs_uri: "gs://REPLACE_WITH_BUCKET_NAME/rsna/train.csv"
+    metadata_local_path: "tests/fixtures/rsna_metadata.csv"
+    columns:
+      patient_id: "patient_id"
+      raw_label: "cancer"
+      source_ref: "image_id"
+
+  vindr:
+    bucket: "REPLACE_WITH_BUCKET_NAME"
+    metadata_gcs_uri: "gs://REPLACE_WITH_BUCKET_NAME/vindr/metadata.csv"
+    metadata_local_path: "tests/fixtures/vindr_metadata.csv"
+    columns:
+      patient_id: "study_id"
+      raw_label: "breast_birads"
+      source_ref: "image_id"

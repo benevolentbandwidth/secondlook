@@ -1,0 +1,23 @@
+# Canonical patient-label mapping config.
+# canonical_label: 1 = WORTH_SECOND_LOOK, 0 = NOT_WORTH_SECOND_LOOK
+
+datasets:
+  cbis:
+    type: "categorical"
+    mappings:
+      MALIGNANT: 1
+      BENIGN: 1
+      BENIGN_WITHOUT_CALLBACK: 0
+
+  rsna:
+    type: "integer"
+    mappings:
+      "1": 1
+      "0": 0
+
+  vindr:
+    type: "birads_range"
+    positive_min: 4
+    positive_max: 6
+    negative_min: 0
+    negative_max: 3

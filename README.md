@@ -45,3 +45,26 @@ pytest tests/test_smoke.py -v
 1. Add a mapper function in `data_pipeline/label_mapper.py` and register it in `map_dataset`. Unknown inputs must raise `ValueError` — never default silently.
 2. Add a `tests/test_smoke_<dataset>.py` modeled on [tests/test_smoke_inbreast.py](tests/test_smoke_inbreast.py), gated on a `<DATASET>_ROOT` env var.
 3. On Windows, use `cv2.imdecode(np.fromfile(path, dtype=np.uint8), ...)` instead of `cv2.imread` if the path may contain non-ASCII characters.
+
+## Manifest-first data build (no downloads yet)
+
+The repository now includes a manifest builder scaffold for CBIS-DDSM, RSNA, and VinDr:
+- source config: `config/sources.yaml`
+- label maps: `config/label_maps.yaml`
+- build CLI: `scripts/build_dataset.py`
+
+`--dry-run` validates config and metadata paths only:
+
+```bash
+python scripts/build_dataset.py --dry-run
+```
+
+Build a patient-level manifest (one row per patient, label is positive if any record is positive):
+
+```bash
+python scripts/build_dataset.py \
+  --datasets cbis rsna vindr \
+  --output-manifest data/manifest_patients.csv
+```
+
+Current mode is manifest-only and does not download images from GCS yet.
