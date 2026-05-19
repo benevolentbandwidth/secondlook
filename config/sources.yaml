@@ -1,0 +1,40 @@
+# Dataset source configuration for manifest-first data builds.
+# Replace bucket/prefix/metadata URIs with real values when access is granted.
+
+datasets:
+  cbis:
+    bucket: "b2-foundation"
+    # CBIS-DDSM ships labels across four case description CSVs (calc/mass x train/test).
+    # The retriever pulls all four and concatenates, adding split + abnormality_type cols.
+    metadata_gcs_uri: "gs://b2-foundation/second-look/DDSM/calc_case_description_train_set.csv"
+    metadata_gcs_uris:
+      - "gs://b2-foundation/second-look/DDSM/calc_case_description_train_set.csv"
+      - "gs://b2-foundation/second-look/DDSM/calc_case_description_test_set.csv"
+      - "gs://b2-foundation/second-look/DDSM/mass_case_description_train_set.csv"
+      - "gs://b2-foundation/second-look/DDSM/mass_case_description_test_set.csv"
+    metadata_local_path: "tests/fixtures/cbis_ddsm_metadata.csv"
+    images_gcs_prefix: "second-look/DDSM/cbis_ddsm/"
+    image_extension: "png"
+    official_split: true
+    columns:
+      patient_id: "patient_id"
+      raw_label: "pathology"
+      source_ref: "image file path"
+
+  rsna:
+    bucket: "REPLACE_WITH_BUCKET_NAME"
+    metadata_gcs_uri: "gs://REPLACE_WITH_BUCKET_NAME/rsna/train.csv"
+    metadata_local_path: "tests/fixtures/rsna_metadata.csv"
+    columns:
+      patient_id: "patient_id"
+      raw_label: "cancer"
+      source_ref: "image_id"
+
+  vindr:
+    bucket: "REPLACE_WITH_BUCKET_NAME"
+    metadata_gcs_uri: "gs://REPLACE_WITH_BUCKET_NAME/vindr/metadata.csv"
+    metadata_local_path: "tests/fixtures/vindr_metadata.csv"
+    columns:
+      patient_id: "study_id"
+      raw_label: "breast_birads"
+      source_ref: "image_id"

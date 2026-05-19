@@ -83,6 +83,50 @@ def split_dataset(
     )
 
 
+def official_split_train_val(
+    df: pd.DataFrame,
+    label_column: str = "label",
+    split_column: str = "split",
+    val_fraction: float = 0.15,
+    seed: int = SEED,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Honor a dataset's canonical train/test boundary; carve val out of train.
+
+    Rows where ``split_column`` is 'test' go to the test partition verbatim.
+    Rows where ``split_column`` is 'train' are stratified by label into train/val
+    using ``val_fraction``. Used for CBIS-DDSM to match published baselines.
+    """
+    for col in (label_column, split_column):
+        if col not in df.columns:
+            raise ValueError(
+                f"Column '{col}' not found. Available columns: {list(df.columns)}"
+            )
+
+    test_df = df[df[split_column] == "test"].reset_index(drop=True)
+    train_pool = df[df[split_column] == "train"].reset_index(drop=True)
+
+    other = set(df[split_column].unique()) - {"train", "test"}
+    if other:
+        raise ValueError(
+            f"Unexpected values in '{split_column}': {sorted(other)}. "
+            "Expected only 'train' and 'test'."
+        )
+
+    _check_class_sizes(train_pool, label_column)
+
+    train_df, val_df = train_test_split(
+        train_pool,
+        test_size=val_fraction,
+        stratify=train_pool[label_column],
+        random_state=seed,
+    )
+    return (
+        train_df.reset_index(drop=True),
+        val_df.reset_index(drop=True),
+        test_df,
+    )
+
+
 def summarize_splits(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
