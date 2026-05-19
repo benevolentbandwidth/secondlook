@@ -18,6 +18,7 @@ from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     recall_score,
+    roc_curve,
 )
 
 from config.constants import INPUT_SIZE
@@ -27,6 +28,68 @@ from modeling.baseline_classifier import (
     WORTH_SENSITIVITY_FLOOR,
 )
 from modeling.train import _build_dataset
+
+
+def find_optimal_threshold(
+    model: tf.keras.Model,
+    val_df: pd.DataFrame,
+    image_dir: str,
+    image_col: str = "image_path",
+    label_col: str = "label",
+    input_size: tuple = INPUT_SIZE,
+    batch_size: int = 32,
+) -> float:
+    """Find the decision threshold that maximises specificity while meeting the sensitivity floor.
+
+    Sweeps the ROC curve on the validation set and picks the operating point where
+    WORTH_SECOND_LOOK sensitivity >= WORTH_SENSITIVITY_FLOOR and FPR (false-alarm rate)
+    is minimised. Falls back to 0.5 with a warning if no threshold meets the floor.
+
+    Args:
+        model: Trained Keras model (or path string to a saved .keras file).
+        val_df: Validation split DataFrame — must NOT be the test set.
+        image_dir: Root directory containing image files.
+        image_col: Column with image filenames.
+        label_col: Column with binary labels (int 0 or 1).
+        input_size: Must match the size used during training.
+        batch_size: Inference batch size.
+
+    Returns:
+        Optimal threshold float in (0, 1).
+    """
+    if isinstance(model, str):
+        model = tf.keras.models.load_model(model)
+
+    val_ds = _build_dataset(
+        val_df, image_dir, image_col, label_col, input_size, batch_size, shuffle=False
+    )
+    true_labels = np.asarray([int(y) for y in val_df[label_col]])
+    probabilities = model.predict(val_ds, verbose=0).ravel()
+
+    # roc_curve returns fpr, tpr (=sensitivity), and the corresponding thresholds.
+    fpr, tpr, thresholds = roc_curve(true_labels, probabilities, pos_label=POSITIVE_CLASS_INDEX)
+
+    # Keep only operating points that satisfy the sensitivity floor.
+    valid_mask = tpr >= WORTH_SENSITIVITY_FLOOR
+    if not valid_mask.any():
+        print(
+            f"WARNING: No threshold achieves sensitivity >= {WORTH_SENSITIVITY_FLOOR}. "
+            "Falling back to 0.5. Consider retraining with stronger class weighting."
+        )
+        return 0.5
+
+    # Among valid points, choose the one with the lowest FPR (fewest false alarms).
+    best_idx = np.argmin(fpr[valid_mask])
+    optimal = float(thresholds[valid_mask][best_idx])
+
+    achieved_sensitivity = float(tpr[valid_mask][best_idx])
+    achieved_specificity = float(1.0 - fpr[valid_mask][best_idx])
+    print(
+        f"\nOptimal threshold: {optimal:.3f} "
+        f"(val sensitivity: {achieved_sensitivity:.3f}, "
+        f"val specificity: {achieved_specificity:.3f})"
+    )
+    return optimal
 
 
 def evaluate_baseline(
