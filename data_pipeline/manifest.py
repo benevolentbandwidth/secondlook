@@ -8,7 +8,11 @@ from typing import Any
 import pandas as pd
 import yaml
 
-from data_pipeline.retriever import DatasetSourceConfig, resolve_metadata_local_path
+from data_pipeline.retriever import (
+    DatasetSourceConfig,
+    load_cbis_case_metadata,
+    resolve_metadata_local_path,
+)
 
 
 MANIFEST_COLUMNS = [
@@ -18,6 +22,17 @@ MANIFEST_COLUMNS = [
     "raw_label_values",
     "record_count",
     "source_refs",
+]
+
+IMAGE_MANIFEST_COLUMNS = [
+    "dataset",
+    "patient_id",
+    "case_folder",
+    "abnormality_type",
+    "raw_label",
+    "canonical_label",
+    "split",
+    "image_local_path",
 ]
 
 
@@ -127,6 +142,56 @@ def build_patient_manifest_for_dataset(
     return grouped[MANIFEST_COLUMNS]
 
 
+def build_cbis_image_manifest(
+    metadata_df: pd.DataFrame,
+    source_cfg: DatasetSourceConfig,
+    label_maps: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
+    """Build a per-case-folder manifest for CBIS-DDSM.
+
+    Expects ``metadata_df`` produced by ``load_cbis_case_metadata`` (has
+    ``split``, ``abnormality_type``, ``case_folder`` columns added). One CBIS
+    row already corresponds to one case folder (full mammogram + view), so we
+    deduplicate on case_folder but warn if labels disagree across duplicates.
+    """
+    required = (
+        source_cfg.patient_id_column,
+        source_cfg.raw_label_column,
+        "case_folder",
+        "split",
+        "abnormality_type",
+    )
+    _require_columns(metadata_df, source_cfg.name, list(required))
+
+    working = pd.DataFrame(
+        {
+            "dataset": source_cfg.name,
+            "patient_id": metadata_df[source_cfg.patient_id_column].astype(str),
+            "case_folder": metadata_df["case_folder"].astype(str),
+            "abnormality_type": metadata_df["abnormality_type"].astype(str),
+            "raw_label": metadata_df[source_cfg.raw_label_column].astype(str),
+            "split": metadata_df["split"].astype(str),
+        }
+    )
+    working = working[working["case_folder"] != ""].copy()
+    working["canonical_label"] = working["raw_label"].map(
+        lambda v: map_raw_label(source_cfg.name, v, label_maps)
+    )
+
+    # Deduplicate: take the max canonical_label per case_folder (positive wins).
+    grouped = (
+        working.groupby(["dataset", "patient_id", "case_folder"], as_index=False)
+        .agg(
+            abnormality_type=("abnormality_type", lambda s: "|".join(sorted(set(s)))),
+            raw_label=("raw_label", lambda s: "|".join(sorted(set(s)))),
+            canonical_label=("canonical_label", "max"),
+            split=("split", "first"),
+        )
+    )
+    grouped["image_local_path"] = ""
+    return grouped[IMAGE_MANIFEST_COLUMNS]
+
+
 def build_patient_manifest(
     repo_root: str | Path,
     selected_datasets: list[str],
@@ -134,10 +199,20 @@ def build_patient_manifest(
     label_maps: dict[str, dict[str, Any]],
     *,
     allow_missing_metadata: bool = False,
+    use_gcs: bool = False,
+    cache_dir: str | Path | None = None,
 ) -> pd.DataFrame:
-    """Build patient manifest across all selected datasets using local metadata tables."""
+    """Build patient manifest across all selected datasets.
+
+    With ``use_gcs=True`` (and ``cache_dir`` set), CBIS metadata is pulled from
+    the four case-description CSVs in GCS instead of the local fixture. Other
+    datasets continue to read from their local CSVs until their GCS loaders land.
+    """
     frames: list[pd.DataFrame] = []
     missing: list[str] = []
+
+    if use_gcs and cache_dir is None:
+        raise ValueError("use_gcs=True requires cache_dir to be set.")
 
     for dataset in selected_datasets:
         ds = dataset.lower()
@@ -147,12 +222,16 @@ def build_patient_manifest(
             raise ValueError(f"Dataset '{dataset}' not found in label-map config.")
 
         source_cfg = sources[ds]
-        metadata_path = resolve_metadata_local_path(repo_root, source_cfg)
-        if not metadata_path or not metadata_path.exists():
-            missing.append(ds)
-            continue
 
-        metadata_df = pd.read_csv(metadata_path)
+        if use_gcs and ds == "cbis":
+            metadata_df = load_cbis_case_metadata(source_cfg, cache_dir)
+        else:
+            metadata_path = resolve_metadata_local_path(repo_root, source_cfg)
+            if not metadata_path or not metadata_path.exists():
+                missing.append(ds)
+                continue
+            metadata_df = pd.read_csv(metadata_path)
+
         frames.append(build_patient_manifest_for_dataset(ds, metadata_df, source_cfg, label_maps))
 
     if missing and not allow_missing_metadata:

@@ -14,6 +14,8 @@
 
 # Input-quality gating lives in data_pipeline.quality (quality_check).
 
+from pathlib import Path
+
 import cv2
 import numpy as np
 
@@ -57,6 +59,27 @@ def preprocess(image: np.ndarray, target_size: tuple = DEFAULT_SIZE) -> np.ndarr
     resized = cv2.resize(oriented, target_size, interpolation=cv2.INTER_AREA)
     normalized = resized.astype(np.float32) / 255.0
     return normalized[:, :, np.newaxis]  # (H, W, 1)
+
+
+def load_image(path: str | Path) -> np.ndarray:
+    """Load a mammogram image from disk into a numpy array.
+
+    Preserves the source bit depth (8- or 16-bit) so downstream CLAHE can
+    normalize from the full dynamic range. CBIS-DDSM PNGs converted from
+    DICOM are often 16-bit grayscale.
+    """
+    file_path = Path(path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"Image not found: {file_path}")
+    image = cv2.imread(str(file_path), cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise ValueError(f"Failed to decode image (corrupt or unsupported format): {file_path}")
+    return image
+
+
+def load_and_preprocess(path: str | Path, target_size: tuple = DEFAULT_SIZE) -> np.ndarray:
+    """Convenience: load an image file and run the full preprocessing pipeline."""
+    return preprocess(load_image(path), target_size=target_size)
 
 
 # ---------------------------------------------------------------------------
