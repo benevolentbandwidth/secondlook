@@ -8,11 +8,17 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from data_pipeline.manifest import build_patient_manifest, load_label_maps_config
+from data_pipeline.manifest import (
+    build_patient_manifest,
+    build_rsna_image_manifest,
+    load_label_maps_config,
+)
 from data_pipeline.retriever import (
     download_images_for_manifest,
     download_metadata_csv,
+    download_rsna_images_for_manifest,
     load_cbis_case_metadata,
+    load_rsna_case_metadata,
     load_sources_config,
     write_download_report,
 )
@@ -216,6 +222,83 @@ def test_download_images_for_manifest_reports_missing_and_multiple(tmp_path):
     report = write_download_report(results, tmp_path / "report.csv")
     df = pd.read_csv(report)
     assert set(df["status"]) == {"missing", "multiple"}
+
+
+RSNA_TRAIN_CSV = (
+    "site_id,patient_id,image_id,laterality,view,age,cancer,biopsy,invasive,BIRADS,implant,density,machine_id,difficult_negative_case\n"
+    "2,10006,462822612,L,CC,61,0,0,0,,0,,29,False\n"
+    "2,10006,1459541791,L,MLO,61,0,0,0,,0,,29,False\n"
+    "1,99999,111111111,R,CC,55,1,1,1,,0,,21,False\n"
+    "1,99999,222222222,R,MLO,55,1,1,1,,0,,21,False\n"
+)
+
+
+def test_load_rsna_case_metadata_adds_case_folder(tmp_path):
+    sources = load_sources_config(REPO_ROOT / "config" / "sources.yaml")
+    rsna = sources["rsna"]
+    client = _fake_storage_client({rsna.metadata_gcs_uri: RSNA_TRAIN_CSV})
+
+    df = load_rsna_case_metadata(rsna, tmp_path, client=client)
+
+    assert len(df) == 4
+    assert set(df["case_folder"]) == {"10006", "99999"}
+    assert set(df["cancer"]) == {0, 1}
+
+
+def test_build_rsna_image_manifest_one_row_per_image(tmp_path):
+    sources = load_sources_config(REPO_ROOT / "config" / "sources.yaml")
+    label_maps = load_label_maps_config(REPO_ROOT / "config" / "label_maps.yaml")
+    rsna = sources["rsna"]
+    client = _fake_storage_client({rsna.metadata_gcs_uri: RSNA_TRAIN_CSV})
+
+    metadata = load_rsna_case_metadata(rsna, tmp_path, client=client)
+    manifest = build_rsna_image_manifest(metadata, rsna, label_maps)
+
+    assert len(manifest) == 4
+    assert set(manifest["image_id"]) == {"462822612", "1459541791", "111111111", "222222222"}
+    p_cancer = manifest[manifest["patient_id"] == "99999"]
+    assert set(p_cancer["canonical_label"]) == {1}
+    p_neg = manifest[manifest["patient_id"] == "10006"]
+    assert set(p_neg["canonical_label"]) == {0}
+
+
+def test_download_rsna_images_for_manifest_uses_deterministic_paths(tmp_path):
+    sources = load_sources_config(REPO_ROOT / "config" / "sources.yaml")
+    rsna = sources["rsna"]
+
+    manifest = pd.DataFrame(
+        {
+            "case_folder": ["10006", "10006", "99999", ""],
+            "image_id": ["462822612", "1459541791", "111111111", "skip"],
+        }
+    )
+    client = _fake_storage_client({})  # writes FAKE-PNG-BYTES for any blob
+
+    results = download_rsna_images_for_manifest(
+        manifest, rsna, tmp_path, client=client, max_workers=2
+    )
+    by_key = {(r.case_folder, r.image_id): r for r in results}
+
+    assert set(by_key.keys()) == {
+        ("10006", "462822612"),
+        ("10006", "1459541791"),
+        ("99999", "111111111"),
+    }
+    for r in results:
+        assert r.status == "downloaded"
+        assert r.local_path is not None and r.local_path.exists()
+        expected_object = (
+            f"{rsna.images_gcs_prefix.rstrip('/')}/{r.case_folder}/{r.image_id}.png"
+        )
+        assert r.gcs_object == expected_object
+
+    # Second call hits the cache.
+    client.reset_mock()
+    results2 = download_rsna_images_for_manifest(
+        manifest, rsna, tmp_path, client=client, max_workers=2
+    )
+    assert all(r.status == "cached" for r in results2)
+    client.bucket.assert_not_called()
 
 
 def test_build_patient_manifest_use_gcs_requires_cache_dir():

@@ -99,6 +99,36 @@ Training the full model on a laptop is fine for smoke tests but slow for real ru
 
 This will be implemented soon.
 
+## Getting the RSNA dataset
+
+RSNA Screening Mammography Breast Cancer Detection (Kaggle 2022) lives at `gs://b2-foundation/second-look/RSNA/rsna-breast-cancer-detection/`. Layout:
+
+- `train.csv` — labels (`cancer` 0/1) and metadata for 54,706 images across 11,913 patients.
+- `train_images/{patient_id}/{image_id}.png` — pre-converted PNGs.
+- `test.csv` and `test_images/` — Kaggle's hidden competition split, no labels. Ignored by the build script.
+
+Because the test labels are unavailable, the build uses a stratified 70/15/15 split on the labeled train set. The auth setup is identical to CBIS (ADC).
+
+Full RSNA build:
+
+```bash
+python scripts/build_dataset.py --use-gcs --datasets rsna --cache-dir data/cache
+```
+
+Small smoke test (~100 images):
+
+```bash
+python scripts/build_dataset.py --use-gcs --datasets rsna --cache-dir data/cache --limit 100
+```
+
+Both datasets at once:
+
+```bash
+python scripts/build_dataset.py --use-gcs --datasets cbis rsna --cache-dir data/cache
+```
+
+The image manifest gains an `image_id` column (CBIS rows leave it empty; RSNA fills it with the PNG filename stem). The download report is split per-dataset: `image_download_report_cbis.csv`, `image_download_report_rsna.csv`.
+
 ### Useful flags
 
 - `--no-official-split` falls back to a stratified 70/15/15 split if you do not want CBIS's canonical split.

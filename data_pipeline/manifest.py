@@ -11,6 +11,7 @@ import yaml
 from data_pipeline.retriever import (
     DatasetSourceConfig,
     load_cbis_case_metadata,
+    load_rsna_case_metadata,
     resolve_metadata_local_path,
 )
 
@@ -28,6 +29,7 @@ IMAGE_MANIFEST_COLUMNS = [
     "dataset",
     "patient_id",
     "case_folder",
+    "image_id",
     "abnormality_type",
     "raw_label",
     "canonical_label",
@@ -188,8 +190,50 @@ def build_cbis_image_manifest(
             split=("split", "first"),
         )
     )
+    grouped["image_id"] = ""
     grouped["image_local_path"] = ""
     return grouped[IMAGE_MANIFEST_COLUMNS]
+
+
+def build_rsna_image_manifest(
+    metadata_df: pd.DataFrame,
+    source_cfg: DatasetSourceConfig,
+    label_maps: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
+    """Build a per-image manifest for RSNA.
+
+    Each row in the input train.csv is already one image; the GCS layout is
+    ``train_images/{patient_id}/{image_id}.png`` so ``case_folder`` is the
+    patient_id and ``image_id`` is the blob filename stem. No official split
+    column (test.csv is the unlabeled Kaggle holdout); ``split`` stays empty
+    here and gets filled by the stratified splitter downstream.
+    """
+    required = (
+        source_cfg.patient_id_column,
+        source_cfg.raw_label_column,
+        source_cfg.source_ref_column or "image_id",
+    )
+    _require_columns(metadata_df, source_cfg.name, list(required))
+    image_id_col = source_cfg.source_ref_column or "image_id"
+
+    working = pd.DataFrame(
+        {
+            "dataset": source_cfg.name,
+            "patient_id": metadata_df[source_cfg.patient_id_column].astype(str),
+            "case_folder": metadata_df[source_cfg.patient_id_column].astype(str),
+            "image_id": metadata_df[image_id_col].astype(str),
+            "abnormality_type": "",
+            "raw_label": metadata_df[source_cfg.raw_label_column].astype(str),
+        }
+    )
+    working = working[(working["case_folder"] != "") & (working["image_id"] != "")].copy()
+    working["canonical_label"] = working["raw_label"].map(
+        lambda v: map_raw_label(source_cfg.name, v, label_maps)
+    )
+    working = working.drop_duplicates(subset=["case_folder", "image_id"]).reset_index(drop=True)
+    working["split"] = ""
+    working["image_local_path"] = ""
+    return working[IMAGE_MANIFEST_COLUMNS]
 
 
 def build_patient_manifest(
@@ -225,6 +269,8 @@ def build_patient_manifest(
 
         if use_gcs and ds == "cbis":
             metadata_df = load_cbis_case_metadata(source_cfg, cache_dir)
+        elif use_gcs and ds == "rsna":
+            metadata_df = load_rsna_case_metadata(source_cfg, cache_dir)
         else:
             metadata_path = resolve_metadata_local_path(repo_root, source_cfg)
             if not metadata_path or not metadata_path.exists():

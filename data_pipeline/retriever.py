@@ -221,15 +221,45 @@ def load_cbis_case_metadata(
     return pd.concat(frames, ignore_index=True)
 
 
+def load_rsna_case_metadata(
+    source_cfg: DatasetSourceConfig,
+    cache_dir: str | Path,
+    *,
+    client: Any = None,
+    project: str | None = None,
+) -> pd.DataFrame:
+    """Pull RSNA train.csv from GCS and add a ``case_folder`` column.
+
+    For RSNA, each row already represents one image; the GCS layout is
+    ``{prefix}/{patient_id}/{image_id}.png``. We expose ``case_folder`` as the
+    patient_id so the manifest builder can group cleanly, and rely on
+    ``image_id`` for the unique blob filename downstream.
+    """
+    uri = source_cfg.metadata_gcs_uri
+    if not uri:
+        raise ValueError(f"Dataset '{source_cfg.name}' has no metadata_gcs_uri configured.")
+
+    local_path = download_metadata_csv(uri, cache_dir, client=client, project=project)
+    df = pd.read_csv(local_path)
+    df["case_folder"] = df[source_cfg.patient_id_column].astype(str)
+    return df
+
+
 @dataclass(frozen=True)
 class ImageDownloadResult:
-    """Outcome of a single case-folder PNG download attempt."""
+    """Outcome of a single image PNG download attempt.
+
+    ``case_folder`` identifies the per-image grouping for CBIS (one PNG per
+    case folder) or the patient folder for RSNA. ``image_id`` is populated for
+    datasets where filenames are deterministic (RSNA); empty for CBIS.
+    """
 
     case_folder: str
     local_path: Path | None
     gcs_object: str | None
     status: str  # 'downloaded' | 'cached' | 'missing' | 'multiple' | 'error'
     detail: str = ""
+    image_id: str = ""
 
 
 def _list_pngs_in_case_folder(client, bucket_name: str, prefix: str) -> list[str]:
@@ -360,6 +390,120 @@ def download_images_for_manifest(
     return sorted(results, key=lambda r: r.case_folder)
 
 
+def _download_one_rsna_image(
+    client,
+    bucket_name: str,
+    case_folder: str,
+    image_id: str,
+    images_prefix: str,
+    extension: str,
+    cache_dir: Path,
+) -> ImageDownloadResult:
+    """Download a single RSNA PNG with a fully-deterministic object name.
+
+    Unlike CBIS, the blob path is fully predictable from (patient_id, image_id),
+    so we skip the prefix-list step.
+    """
+    local_path = cache_dir / f"{case_folder}_{image_id}.{extension}"
+    if local_path.exists() and local_path.stat().st_size > 0:
+        return ImageDownloadResult(
+            case_folder=case_folder,
+            local_path=local_path,
+            gcs_object=None,
+            status="cached",
+            image_id=image_id,
+        )
+
+    object_name = f"{images_prefix.rstrip('/')}/{case_folder}/{image_id}.{extension}"
+    try:
+        client.bucket(bucket_name).blob(object_name).download_to_filename(str(local_path))
+    except Exception as exc:
+        # google-cloud-storage raises NotFound for a missing blob; surface it as
+        # 'missing' so the report is actionable, and everything else as 'error'.
+        detail = f"download failed: {exc}"
+        status = "missing" if "404" in str(exc) or "NotFound" in type(exc).__name__ else "error"
+        return ImageDownloadResult(
+            case_folder=case_folder,
+            local_path=None,
+            gcs_object=object_name,
+            status=status,
+            detail=detail,
+            image_id=image_id,
+        )
+
+    return ImageDownloadResult(
+        case_folder=case_folder,
+        local_path=local_path,
+        gcs_object=object_name,
+        status="downloaded",
+        image_id=image_id,
+    )
+
+
+def download_rsna_images_for_manifest(
+    manifest_df: pd.DataFrame,
+    source_cfg: DatasetSourceConfig,
+    cache_dir: str | Path,
+    *,
+    case_folder_column: str = "case_folder",
+    image_id_column: str = "image_id",
+    max_workers: int = DEFAULT_IMAGE_DOWNLOAD_WORKERS,
+    client: Any = None,
+    project: str | None = None,
+) -> list[ImageDownloadResult]:
+    """Download one PNG per (patient_id, image_id) in ``manifest_df``.
+
+    Concurrent downloads via a bounded thread pool. Skip-if-cached.
+    """
+    if not source_cfg.images_gcs_prefix:
+        raise ValueError(
+            f"Dataset '{source_cfg.name}' has no images_gcs_prefix configured."
+        )
+    extension = (source_cfg.image_extension or "png").lstrip(".")
+    for col in (case_folder_column, image_id_column):
+        if col not in manifest_df.columns:
+            raise ValueError(f"Manifest is missing required column '{col}'.")
+
+    cache_root = Path(cache_dir)
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    pairs = sorted(
+        {
+            (str(cf), str(iid))
+            for cf, iid in zip(
+                manifest_df[case_folder_column].astype(str),
+                manifest_df[image_id_column].astype(str),
+            )
+            if cf and iid
+        }
+    )
+    if not pairs:
+        return []
+
+    if client is None:
+        client = _get_storage_client(project=project)
+
+    results: list[ImageDownloadResult] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(
+                _download_one_rsna_image,
+                client,
+                source_cfg.bucket,
+                case_folder,
+                image_id,
+                source_cfg.images_gcs_prefix,
+                extension,
+                cache_root,
+            ): (case_folder, image_id)
+            for case_folder, image_id in pairs
+        }
+        for future in as_completed(futures):
+            results.append(future.result())
+
+    return sorted(results, key=lambda r: (r.case_folder, r.image_id))
+
+
 def write_download_report(
     results: Iterable[ImageDownloadResult], report_path: str | Path
 ) -> Path:
@@ -370,6 +514,7 @@ def write_download_report(
         [
             {
                 "case_folder": r.case_folder,
+                "image_id": r.image_id,
                 "status": r.status,
                 "gcs_object": r.gcs_object or "",
                 "local_path": str(r.local_path) if r.local_path else "",

@@ -22,9 +22,15 @@ datasets:
       source_ref: "image file path"
 
   rsna:
-    bucket: "REPLACE_WITH_BUCKET_NAME"
-    metadata_gcs_uri: "gs://REPLACE_WITH_BUCKET_NAME/rsna/train.csv"
+    bucket: "b2-foundation"
+    # RSNA Screening Mammography Breast Cancer Detection (Kaggle 2022).
+    # Only train.csv is labeled; test.csv is the hidden competition split (4 rows,
+    # no `cancer` column), so we ignore it and stratify-split train into 70/15/15.
+    metadata_gcs_uri: "gs://b2-foundation/second-look/RSNA/rsna-breast-cancer-detection/train.csv"
     metadata_local_path: "tests/fixtures/rsna_metadata.csv"
+    images_gcs_prefix: "second-look/RSNA/rsna-breast-cancer-detection/train_images/"
+    image_extension: "png"
+    official_split: false
     columns:
       patient_id: "patient_id"
       raw_label: "cancer"
