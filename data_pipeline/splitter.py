@@ -23,11 +23,17 @@ def split_dataset(
     train_ratio: float = TRAIN_RATIO,
     val_ratio: float = VAL_RATIO,
     seed: int = SEED,
+    group_column: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Split a DataFrame into stratified train, validation, and test sets.
 
     Stratification is by the binary label column so that WORTH / NOT_WORTH
     proportions are preserved in every partition.
+
+    When ``group_column`` is provided (e.g. ``"patient_id"``), the split is
+    performed at the group level so every row of a given group lands in the
+    same partition. Patient-level labels (positive if any of the group's rows
+    is positive) are used as the stratification key to keep class balance even.
 
     Args:
         df: Full dataset DataFrame. Must contain the label_column.
@@ -35,14 +41,18 @@ def split_dataset(
         train_ratio: Fraction of data for training.
         val_ratio: Fraction of data for validation.
         seed: Random seed for reproducibility.
+        group_column: If set, all rows sharing this column value go in the same
+            split. Required for datasets like RSNA where one patient contributes
+            multiple image rows and we must avoid patient leakage across splits.
 
     Returns:
         (train_df, val_df, test_df) — three non-overlapping DataFrames,
         each with a reset index.
 
     Raises:
-        ValueError: If ratios don't sum to <= 1.0, or label_column is missing,
-                    or any label class has fewer than 3 samples (can't stratify).
+        ValueError: If ratios don't sum to <= 1.0, label_column/group_column
+            is missing, or any label class has fewer than 3 (groups or rows,
+            depending on mode).
     """
     if label_column not in df.columns:
         raise ValueError(
@@ -53,6 +63,11 @@ def split_dataset(
     if test_ratio <= 0:
         raise ValueError(
             f"train_ratio ({train_ratio}) + val_ratio ({val_ratio}) must be < 1.0"
+        )
+
+    if group_column is not None:
+        return _grouped_stratified_split(
+            df, label_column, group_column, train_ratio, val_ratio, test_ratio, seed
         )
 
     _check_class_sizes(df, label_column)
@@ -81,6 +96,51 @@ def split_dataset(
         val_df.reset_index(drop=True),
         test_df.reset_index(drop=True),
     )
+
+
+def _grouped_stratified_split(
+    df: pd.DataFrame,
+    label_column: str,
+    group_column: str,
+    train_ratio: float,
+    val_ratio: float,
+    test_ratio: float,
+    seed: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Patient-grouped stratified split.
+
+    Aggregates to one row per group with ``any_positive = max(label)``, splits
+    those group keys 70/15/15 stratified on the group-level label, then
+    propagates the split assignment back to every row.
+    """
+    if group_column not in df.columns:
+        raise ValueError(
+            f"Group column '{group_column}' not found. Available columns: {list(df.columns)}"
+        )
+
+    group_labels = (
+        df.groupby(group_column)[label_column].max().reset_index(name="_group_label")
+    )
+    _check_class_sizes(group_labels, "_group_label")
+
+    train_val_groups, test_groups = train_test_split(
+        group_labels,
+        test_size=test_ratio,
+        stratify=group_labels["_group_label"],
+        random_state=seed,
+    )
+    val_ratio_adjusted = val_ratio / (train_ratio + val_ratio)
+    train_groups, val_groups = train_test_split(
+        train_val_groups,
+        test_size=val_ratio_adjusted,
+        stratify=train_val_groups["_group_label"],
+        random_state=seed,
+    )
+
+    def _select(groups: pd.DataFrame) -> pd.DataFrame:
+        return df[df[group_column].isin(set(groups[group_column]))].reset_index(drop=True)
+
+    return _select(train_groups), _select(val_groups), _select(test_groups)
 
 
 def official_split_train_val(

@@ -13,7 +13,7 @@ from data_pipeline.manifest import (
     load_label_maps_config,
 )
 from data_pipeline.retriever import load_sources_config
-from data_pipeline.splitter import official_split_train_val
+from data_pipeline.splitter import official_split_train_val, split_dataset
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -75,6 +75,35 @@ def test_official_split_train_val_preserves_test_partition():
     assert len(train) + len(val) == 14
     # Stratified val keeps ~equal class balance.
     assert set(val["canonical_label"]).issubset({0, 1})
+
+
+def test_split_dataset_grouped_keeps_patient_in_one_split():
+    # 40 patients, 4 images each (RSNA-shaped). Half the patients are positive
+    # in their left breast only (mixed labels within the patient).
+    rows = []
+    for pid in range(40):
+        left_label = 1 if pid < 20 else 0
+        rows.append({"patient_id": f"P{pid:03d}", "laterality": "L", "view": "CC", "canonical_label": left_label})
+        rows.append({"patient_id": f"P{pid:03d}", "laterality": "L", "view": "MLO", "canonical_label": left_label})
+        rows.append({"patient_id": f"P{pid:03d}", "laterality": "R", "view": "CC", "canonical_label": 0})
+        rows.append({"patient_id": f"P{pid:03d}", "laterality": "R", "view": "MLO", "canonical_label": 0})
+    df = pd.DataFrame(rows)
+
+    train, val, test = split_dataset(
+        df, label_column="canonical_label", group_column="patient_id"
+    )
+
+    train_pat = set(train["patient_id"])
+    val_pat = set(val["patient_id"])
+    test_pat = set(test["patient_id"])
+    assert train_pat.isdisjoint(val_pat)
+    assert train_pat.isdisjoint(test_pat)
+    assert val_pat.isdisjoint(test_pat)
+    assert len(train_pat | val_pat | test_pat) == 40
+    # Every patient contributes exactly 4 rows to exactly one split.
+    for partition in (train, val, test):
+        sizes = partition.groupby("patient_id").size()
+        assert (sizes == 4).all()
 
 
 def test_official_split_rejects_unexpected_split_values():

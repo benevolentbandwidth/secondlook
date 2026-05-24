@@ -238,9 +238,13 @@ def main() -> None:
                 image_manifest, label_column="canonical_label", split_column="split"
             )
         else:
+            # Patient-grouped to prevent leakage: a patient with multiple images
+            # (RSNA: 4 views typical; left+right breasts may even have different
+            # labels) must land entirely in one split.
             train_df, val_df, test_df = split_dataset(
                 image_manifest.drop(columns=["split"]),
                 label_column="canonical_label",
+                group_column="patient_id",
             )
         train_df["split"] = "train"
         val_df["split"] = "val"
