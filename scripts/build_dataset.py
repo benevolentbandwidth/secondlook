@@ -27,12 +27,18 @@ from data_pipeline.manifest import (
     MANIFEST_COLUMNS,
     build_cbis_image_manifest,
     build_patient_manifest,
+    build_rsna_image_manifest,
+    build_vindr_image_manifest,
     load_label_maps_config,
 )
 from data_pipeline.retriever import (
     download_images_for_manifest,
+    download_rsna_images_for_manifest,
+    download_vindr_images_for_manifest,
     load_cbis_case_metadata,
+    load_rsna_case_metadata,
     load_sources_config,
+    load_vindr_case_metadata,
     summarize_sources_for_dry_run,
     write_download_report,
 )
@@ -135,76 +141,141 @@ def main() -> None:
         print("Manifest-only mode complete. Use --use-gcs to fetch images.")
         return
 
-    if "cbis" not in selected:
-        print("--use-gcs currently only fetches CBIS images. Skipping image step.")
+    supported = {"cbis", "rsna", "vindr"}
+    targets = [d for d in selected if d in supported]
+    if not targets:
+        print(f"--use-gcs supports {sorted(supported)}; none selected. Skipping image step.")
         return
 
-    cbis_cfg = sources["cbis"]
-    cbis_metadata = load_cbis_case_metadata(cbis_cfg, cache_dir)
-    image_manifest = build_cbis_image_manifest(cbis_metadata, cbis_cfg, label_maps)
-    print(f"Built CBIS image manifest: {len(image_manifest)} rows")
+    from config.constants import SEED
 
-    if args.limit is not None and args.limit > 0:
-        # Sample across both official splits so even tiny --limit runs leave
-        # the splitter with non-empty train and test pools. Deterministic via
-        # config.constants.SEED.
-        from config.constants import SEED
+    per_dataset_finals: list[pd.DataFrame] = []
+    per_dataset_reports: list[Path] = []
 
-        per_split = max(1, args.limit // 2)
-        sampled = []
-        for split_value, group in image_manifest.groupby("split"):
-            n = min(per_split, len(group))
-            sampled.append(group.sample(n=n, random_state=SEED))
-        image_manifest = (
-            pd.concat(sampled, ignore_index=True)
-            .sort_values("case_folder")
-            .reset_index(drop=True)
-        )
-        print(
-            f"--limit applied: sampled to {len(image_manifest)} rows "
-            f"(train+test, seed={SEED})"
-        )
+    for ds in targets:
+        cfg = sources[ds]
+        if ds == "cbis":
+            metadata = load_cbis_case_metadata(cfg, cache_dir)
+            image_manifest = build_cbis_image_manifest(metadata, cfg, label_maps)
+        elif ds == "rsna":
+            metadata = load_rsna_case_metadata(cfg, cache_dir)
+            image_manifest = build_rsna_image_manifest(metadata, cfg, label_maps)
+        elif ds == "vindr":
+            metadata = load_vindr_case_metadata(cfg, cache_dir)
+            image_manifest = build_vindr_image_manifest(metadata, cfg, label_maps)
+        else:
+            continue
+        print(f"Built {ds} image manifest: {len(image_manifest)} rows")
 
-    if not args.skip_image_download:
-        image_cache = cache_dir / "images" / "cbis"
-        results = download_images_for_manifest(
-            image_manifest, cbis_cfg, image_cache, max_workers=args.max_workers
-        )
-        report_path = image_out.parent / "image_download_report.csv"
-        write_download_report(results, report_path)
-        status_counts = pd.Series([r.status for r in results]).value_counts()
-        print("Image download statuses:")
-        print(status_counts.to_string())
-        print(f"Wrote download report: {report_path}")
+        if args.limit is not None and args.limit > 0:
+            if cfg.official_split and "split" in image_manifest.columns and image_manifest["split"].any():
+                # Sample across both official splits so even tiny --limit runs
+                # leave the splitter with non-empty train and test pools.
+                per_split = max(1, args.limit // 2)
+                sampled = []
+                for _, group in image_manifest.groupby("split"):
+                    n = min(per_split, len(group))
+                    sampled.append(group.sample(n=n, random_state=SEED))
+                image_manifest = (
+                    pd.concat(sampled, ignore_index=True)
+                    .sort_values(["case_folder", "image_id"])
+                    .reset_index(drop=True)
+                )
+            else:
+                # Stratified sample on label, floored at 3 per class so the
+                # downstream splitter can still stratify three ways. Needed for
+                # heavily imbalanced datasets like RSNA (~2% positive) where a
+                # naive proportional draw at --limit 100 yields only ~2 positives.
+                n = min(args.limit, len(image_manifest))
+                counts = image_manifest["canonical_label"].value_counts()
+                pieces = []
+                for lbl, total in counts.items():
+                    target = max(3, int(round(n * total / len(image_manifest))))
+                    pieces.append(
+                        image_manifest[image_manifest["canonical_label"] == lbl].sample(
+                            n=min(total, target), random_state=SEED
+                        )
+                    )
+                image_manifest = (
+                    pd.concat(pieces, ignore_index=True)
+                    .sort_values(["case_folder", "image_id"])
+                    .reset_index(drop=True)
+                )
+            print(f"--limit applied to {ds}: sampled to {len(image_manifest)} rows (seed={SEED})")
 
-        local_path_by_folder = {
-            r.case_folder: str(r.local_path) if r.local_path else "" for r in results
-        }
-        image_manifest["image_local_path"] = image_manifest["case_folder"].map(
-            local_path_by_folder
-        ).fillna("")
+        if not args.skip_image_download:
+            image_cache = cache_dir / "images" / ds
+            if ds == "cbis":
+                results = download_images_for_manifest(
+                    image_manifest, cfg, image_cache, max_workers=args.max_workers
+                )
+                local_path_by_key = {
+                    r.case_folder: str(r.local_path) if r.local_path else "" for r in results
+                }
+                image_manifest["image_local_path"] = (
+                    image_manifest["case_folder"].map(local_path_by_key).fillna("")
+                )
+            else:  # rsna / vindr — per-image deterministic blob paths
+                downloader = (
+                    download_vindr_images_for_manifest
+                    if ds == "vindr"
+                    else download_rsna_images_for_manifest
+                )
+                results = downloader(
+                    image_manifest, cfg, image_cache, max_workers=args.max_workers
+                )
+                local_path_by_key = {
+                    (r.case_folder, r.image_id): str(r.local_path) if r.local_path else ""
+                    for r in results
+                }
+                image_manifest["image_local_path"] = [
+                    local_path_by_key.get((cf, iid), "")
+                    for cf, iid in zip(
+                        image_manifest["case_folder"].astype(str),
+                        image_manifest["image_id"].astype(str),
+                    )
+                ]
 
-    if args.use_official_split and cbis_cfg.official_split:
-        train_df, val_df, test_df = official_split_train_val(
-            image_manifest, label_column="canonical_label", split_column="split"
-        )
-    else:
-        train_df, val_df, test_df = split_dataset(
-            image_manifest.drop(columns=["split"]),
-            label_column="canonical_label",
-        )
+            report_path = image_out.parent / f"image_download_report_{ds}.csv"
+            write_download_report(results, report_path)
+            per_dataset_reports.append(report_path)
+            status_counts = pd.Series([r.status for r in results]).value_counts()
+            print(f"[{ds}] download statuses:")
+            print(status_counts.to_string())
+            print(f"[{ds}] wrote download report: {report_path}")
 
-    train_df["split"] = "train"
-    val_df["split"] = "val"
-    test_df["split"] = "test"
-    final = pd.concat([train_df, val_df, test_df], ignore_index=True).reindex(
-        columns=IMAGE_MANIFEST_COLUMNS
-    )
+        if args.use_official_split and cfg.official_split:
+            # VinDr's official split is study-level (4 images per study, all in
+            # one of training/test); carving val out of train without grouping
+            # would leak across the train/val boundary. CBIS already publishes
+            # a patient-disjoint train/test boundary; preserving its prior
+            # behavior (no group_column) keeps test counts stable.
+            group_col = "patient_id" if ds == "vindr" else None
+            train_df, val_df, test_df = official_split_train_val(
+                image_manifest,
+                label_column="canonical_label",
+                split_column="split",
+                group_column=group_col,
+            )
+        else:
+            # Patient-grouped to prevent leakage: a patient with multiple images
+            # (RSNA: 4 views typical; left+right breasts may even have different
+            # labels) must land entirely in one split.
+            train_df, val_df, test_df = split_dataset(
+                image_manifest.drop(columns=["split"]),
+                label_column="canonical_label",
+                group_column="patient_id",
+            )
+        train_df["split"] = "train"
+        val_df["split"] = "val"
+        test_df["split"] = "test"
+        per_dataset_finals.append(pd.concat([train_df, val_df, test_df], ignore_index=True))
 
+    final = pd.concat(per_dataset_finals, ignore_index=True).reindex(columns=IMAGE_MANIFEST_COLUMNS)
     image_out.parent.mkdir(parents=True, exist_ok=True)
     final.to_csv(image_out, index=False)
     print(f"Wrote training manifest: {image_out}  rows={len(final)}")
-    print("Split sizes:")
+    print("Split sizes (all datasets):")
     print(final["split"].value_counts().to_string())
     print("Label distribution by split:")
     print(

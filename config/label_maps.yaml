@@ -16,8 +16,10 @@ datasets:
       "0": 0
 
   vindr:
+    # VinDr-Mammo BI-RADS values in breast-level_annotations.csv span 1 through 5
+    # (no 0, no 6). The loader parses "BI-RADS N" strings into ints before mapping.
     type: "birads_range"
     positive_min: 4
-    positive_max: 6
-    negative_min: 0
+    positive_max: 5
+    negative_min: 1
     negative_max: 3

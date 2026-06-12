@@ -22,18 +22,34 @@ datasets:
       source_ref: "image file path"
 
   rsna:
-    bucket: "REPLACE_WITH_BUCKET_NAME"
-    metadata_gcs_uri: "gs://REPLACE_WITH_BUCKET_NAME/rsna/train.csv"
+    bucket: "b2-foundation"
+    # RSNA Screening Mammography Breast Cancer Detection (Kaggle 2022).
+    # Only train.csv is labeled; test.csv is the hidden competition split (4 rows,
+    # no `cancer` column), so we ignore it and stratify-split train into 70/15/15.
+    metadata_gcs_uri: "gs://b2-foundation/second-look/RSNA/rsna-breast-cancer-detection/train.csv"
     metadata_local_path: "tests/fixtures/rsna_metadata.csv"
+    images_gcs_prefix: "second-look/RSNA/rsna-breast-cancer-detection/train_images/"
+    image_extension: "png"
+    official_split: false
     columns:
       patient_id: "patient_id"
       raw_label: "cancer"
       source_ref: "image_id"
 
   vindr:
-    bucket: "REPLACE_WITH_BUCKET_NAME"
-    metadata_gcs_uri: "gs://REPLACE_WITH_BUCKET_NAME/vindr/metadata.csv"
+    bucket: "b2-foundation"
+    # VinDr-Mammo (PhysioNet 1.0.0). breast-level_annotations.csv is the
+    # image-level label source; finding_annotations.csv (with bboxes) is not
+    # used by the binary pipeline. The bucket already holds pre-converted PNGs
+    # at images/{study_id}/{image_id}.png, so no DICOM loader is required.
+    # The CSV exposes a 'split' column with values 'training' and 'test', so
+    # we use the official-split path. study_id acts as patient_id (one study
+    # per patient, four images per study).
+    metadata_gcs_uri: "gs://b2-foundation/second-look/VinDR/physionet.org/files/vindr-mammo/1.0.0/breast-level_annotations.csv"
     metadata_local_path: "tests/fixtures/vindr_metadata.csv"
+    images_gcs_prefix: "second-look/VinDR/physionet.org/files/vindr-mammo/1.0.0/images/"
+    image_extension: "png"
+    official_split: true
     columns:
       patient_id: "study_id"
       raw_label: "breast_birads"
