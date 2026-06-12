@@ -149,12 +149,18 @@ def official_split_train_val(
     split_column: str = "split",
     val_fraction: float = 0.15,
     seed: int = SEED,
+    group_column: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Honor a dataset's canonical train/test boundary; carve val out of train.
 
     Rows where ``split_column`` is 'test' go to the test partition verbatim.
     Rows where ``split_column`` is 'train' are stratified by label into train/val
     using ``val_fraction``. Used for CBIS-DDSM to match published baselines.
+
+    When ``group_column`` is set, the train/val carve happens at the group
+    level so a single group (e.g. one VinDr study with four images) cannot
+    straddle the train/val boundary. Required for VinDr-Mammo, where the
+    official split is at the study level and four images share each study.
     """
     for col in (label_column, split_column):
         if col not in df.columns:
@@ -170,6 +176,32 @@ def official_split_train_val(
         raise ValueError(
             f"Unexpected values in '{split_column}': {sorted(other)}. "
             "Expected only 'train' and 'test'."
+        )
+
+    if group_column is not None:
+        if group_column not in train_pool.columns:
+            raise ValueError(
+                f"Group column '{group_column}' not found. "
+                f"Available columns: {list(train_pool.columns)}"
+            )
+        group_labels = (
+            train_pool.groupby(group_column)[label_column]
+            .max()
+            .reset_index(name="_group_label")
+        )
+        _check_class_sizes(group_labels, "_group_label")
+        train_groups, val_groups = train_test_split(
+            group_labels,
+            test_size=val_fraction,
+            stratify=group_labels["_group_label"],
+            random_state=seed,
+        )
+        train_keys = set(train_groups[group_column])
+        val_keys = set(val_groups[group_column])
+        return (
+            train_pool[train_pool[group_column].isin(train_keys)].reset_index(drop=True),
+            train_pool[train_pool[group_column].isin(val_keys)].reset_index(drop=True),
+            test_df,
         )
 
     _check_class_sizes(train_pool, label_column)

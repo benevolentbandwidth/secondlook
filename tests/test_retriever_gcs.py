@@ -11,15 +11,18 @@ import pytest
 from data_pipeline.manifest import (
     build_patient_manifest,
     build_rsna_image_manifest,
+    build_vindr_image_manifest,
     load_label_maps_config,
 )
 from data_pipeline.retriever import (
     download_images_for_manifest,
     download_metadata_csv,
     download_rsna_images_for_manifest,
+    download_vindr_images_for_manifest,
     load_cbis_case_metadata,
     load_rsna_case_metadata,
     load_sources_config,
+    load_vindr_case_metadata,
     write_download_report,
 )
 
@@ -299,6 +302,120 @@ def test_download_rsna_images_for_manifest_uses_deterministic_paths(tmp_path):
     )
     assert all(r.status == "cached" for r in results2)
     client.bucket.assert_not_called()
+
+
+VINDR_BREAST_CSV = (
+    "study_id,series_id,image_id,laterality,view_position,height,width,"
+    "breast_birads,breast_density,split\n"
+    "study_pos,sa,img_p1,L,CC,3518,2800,BI-RADS 4,DENSITY B,training\n"
+    "study_pos,sa,img_p2,L,MLO,3518,2800,BI-RADS 4,DENSITY B,training\n"
+    "study_pos,sa,img_p3,R,CC,3518,2800,BI-RADS 4,DENSITY B,training\n"
+    "study_pos,sa,img_p4,R,MLO,3518,2800,BI-RADS 4,DENSITY B,training\n"
+    "study_neg,sb,img_n1,L,CC,3518,2800,BI-RADS 1,DENSITY D,test\n"
+    "study_neg,sb,img_n2,L,MLO,3518,2800,BI-RADS 1,DENSITY D,test\n"
+    "study_neg,sb,img_n3,R,CC,3518,2800,BI-RADS 1,DENSITY D,test\n"
+    "study_neg,sb,img_n4,R,MLO,3518,2800,BI-RADS 1,DENSITY D,test\n"
+)
+
+
+def test_load_vindr_case_metadata_parses_birads_and_normalizes_split(tmp_path):
+    sources = load_sources_config(REPO_ROOT / "config" / "sources.yaml")
+    vindr = sources["vindr"]
+    client = _fake_storage_client({vindr.metadata_gcs_uri: VINDR_BREAST_CSV})
+
+    df = load_vindr_case_metadata(vindr, tmp_path, client=client)
+
+    # BI-RADS strings parsed to ints.
+    assert set(df["breast_birads"]) == {4, 1}
+    # 'training' remapped to 'train'; 'test' preserved.
+    assert set(df["split"]) == {"train", "test"}
+    # case_folder added and equals study_id.
+    assert set(df["case_folder"]) == {"study_pos", "study_neg"}
+
+
+def test_build_vindr_image_manifest_one_row_per_image_with_official_split(tmp_path):
+    sources = load_sources_config(REPO_ROOT / "config" / "sources.yaml")
+    label_maps = load_label_maps_config(REPO_ROOT / "config" / "label_maps.yaml")
+    vindr = sources["vindr"]
+    client = _fake_storage_client({vindr.metadata_gcs_uri: VINDR_BREAST_CSV})
+
+    metadata = load_vindr_case_metadata(vindr, tmp_path, client=client)
+    manifest = build_vindr_image_manifest(metadata, vindr, label_maps)
+
+    assert len(manifest) == 8
+    assert set(manifest["image_id"]) == {
+        "img_p1", "img_p2", "img_p3", "img_p4",
+        "img_n1", "img_n2", "img_n3", "img_n4",
+    }
+    pos_rows = manifest[manifest["patient_id"] == "study_pos"]
+    assert set(pos_rows["canonical_label"]) == {1}
+    assert set(pos_rows["split"]) == {"train"}
+    neg_rows = manifest[manifest["patient_id"] == "study_neg"]
+    assert set(neg_rows["canonical_label"]) == {0}
+    assert set(neg_rows["split"]) == {"test"}
+
+
+def test_download_vindr_images_for_manifest_uses_deterministic_paths(tmp_path):
+    sources = load_sources_config(REPO_ROOT / "config" / "sources.yaml")
+    vindr = sources["vindr"]
+
+    manifest = pd.DataFrame(
+        {
+            "case_folder": ["study_pos", "study_pos", "study_neg", ""],
+            "image_id": ["img_p1", "img_p2", "img_n1", "skip"],
+        }
+    )
+    client = _fake_storage_client({})
+
+    results = download_vindr_images_for_manifest(
+        manifest, vindr, tmp_path, client=client, max_workers=2
+    )
+    by_key = {(r.case_folder, r.image_id): r for r in results}
+
+    assert set(by_key.keys()) == {
+        ("study_pos", "img_p1"),
+        ("study_pos", "img_p2"),
+        ("study_neg", "img_n1"),
+    }
+    for r in results:
+        assert r.status == "downloaded"
+        assert r.local_path is not None and r.local_path.exists()
+        expected_object = (
+            f"{vindr.images_gcs_prefix.rstrip('/')}/{r.case_folder}/{r.image_id}.png"
+        )
+        assert r.gcs_object == expected_object
+
+    client.reset_mock()
+    results2 = download_vindr_images_for_manifest(
+        manifest, vindr, tmp_path, client=client, max_workers=2
+    )
+    assert all(r.status == "cached" for r in results2)
+    client.bucket.assert_not_called()
+
+
+def test_build_patient_manifest_use_gcs_routes_vindr_through_loader(tmp_path, monkeypatch):
+    sources = load_sources_config(REPO_ROOT / "config" / "sources.yaml")
+    label_maps = load_label_maps_config(REPO_ROOT / "config" / "label_maps.yaml")
+    client = _fake_storage_client({sources["vindr"].metadata_gcs_uri: VINDR_BREAST_CSV})
+
+    monkeypatch.setattr(
+        "data_pipeline.retriever._get_storage_client", lambda project=None: client
+    )
+
+    manifest = build_patient_manifest(
+        repo_root=REPO_ROOT,
+        selected_datasets=["vindr"],
+        sources=sources,
+        label_maps=label_maps,
+        use_gcs=True,
+        cache_dir=tmp_path,
+    )
+
+    assert set(manifest["patient_id"]) == {"study_pos", "study_neg"}
+    pos = manifest[manifest["patient_id"] == "study_pos"].iloc[0]
+    neg = manifest[manifest["patient_id"] == "study_neg"].iloc[0]
+    assert int(pos["canonical_label"]) == 1
+    assert int(neg["canonical_label"]) == 0
 
 
 def test_build_patient_manifest_use_gcs_requires_cache_dir():

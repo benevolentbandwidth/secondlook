@@ -28,14 +28,17 @@ from data_pipeline.manifest import (
     build_cbis_image_manifest,
     build_patient_manifest,
     build_rsna_image_manifest,
+    build_vindr_image_manifest,
     load_label_maps_config,
 )
 from data_pipeline.retriever import (
     download_images_for_manifest,
     download_rsna_images_for_manifest,
+    download_vindr_images_for_manifest,
     load_cbis_case_metadata,
     load_rsna_case_metadata,
     load_sources_config,
+    load_vindr_case_metadata,
     summarize_sources_for_dry_run,
     write_download_report,
 )
@@ -138,7 +141,7 @@ def main() -> None:
         print("Manifest-only mode complete. Use --use-gcs to fetch images.")
         return
 
-    supported = {"cbis", "rsna"}
+    supported = {"cbis", "rsna", "vindr"}
     targets = [d for d in selected if d in supported]
     if not targets:
         print(f"--use-gcs supports {sorted(supported)}; none selected. Skipping image step.")
@@ -157,6 +160,9 @@ def main() -> None:
         elif ds == "rsna":
             metadata = load_rsna_case_metadata(cfg, cache_dir)
             image_manifest = build_rsna_image_manifest(metadata, cfg, label_maps)
+        elif ds == "vindr":
+            metadata = load_vindr_case_metadata(cfg, cache_dir)
+            image_manifest = build_vindr_image_manifest(metadata, cfg, label_maps)
         else:
             continue
         print(f"Built {ds} image manifest: {len(image_manifest)} rows")
@@ -209,8 +215,13 @@ def main() -> None:
                 image_manifest["image_local_path"] = (
                     image_manifest["case_folder"].map(local_path_by_key).fillna("")
                 )
-            else:  # rsna
-                results = download_rsna_images_for_manifest(
+            else:  # rsna / vindr — per-image deterministic blob paths
+                downloader = (
+                    download_vindr_images_for_manifest
+                    if ds == "vindr"
+                    else download_rsna_images_for_manifest
+                )
+                results = downloader(
                     image_manifest, cfg, image_cache, max_workers=args.max_workers
                 )
                 local_path_by_key = {
@@ -234,8 +245,17 @@ def main() -> None:
             print(f"[{ds}] wrote download report: {report_path}")
 
         if args.use_official_split and cfg.official_split:
+            # VinDr's official split is study-level (4 images per study, all in
+            # one of training/test); carving val out of train without grouping
+            # would leak across the train/val boundary. CBIS already publishes
+            # a patient-disjoint train/test boundary; preserving its prior
+            # behavior (no group_column) keeps test counts stable.
+            group_col = "patient_id" if ds == "vindr" else None
             train_df, val_df, test_df = official_split_train_val(
-                image_manifest, label_column="canonical_label", split_column="split"
+                image_manifest,
+                label_column="canonical_label",
+                split_column="split",
+                group_column=group_col,
             )
         else:
             # Patient-grouped to prevent leakage: a patient with multiple images

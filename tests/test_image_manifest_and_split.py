@@ -106,6 +106,49 @@ def test_split_dataset_grouped_keeps_patient_in_one_split():
         assert (sizes == 4).all()
 
 
+def test_official_split_train_val_with_group_column_keeps_patients_intact():
+    """VinDr publishes a study-level official split: all 4 images of a study
+    are in 'training' or 'test' together. Carving val out of train must not
+    split a study across train and val. Build 30 training studies + 10 test
+    studies, each with 4 images, and assert no study straddles train/val."""
+    rows = []
+    rng = list(range(40))
+    for i in rng:
+        label = 1 if i % 2 == 0 else 0
+        split = "train" if i < 30 else "test"
+        for view in range(4):
+            rows.append(
+                {
+                    "patient_id": f"study_{i:03d}",
+                    "image_id": f"study_{i:03d}_img{view}",
+                    "canonical_label": label,
+                    "split": split,
+                }
+            )
+    df = pd.DataFrame(rows)
+
+    train, val, test = official_split_train_val(
+        df,
+        label_column="canonical_label",
+        split_column="split",
+        val_fraction=0.2,
+        seed=42,
+        group_column="patient_id",
+    )
+
+    train_pat = set(train["patient_id"])
+    val_pat = set(val["patient_id"])
+    test_pat = set(test["patient_id"])
+    assert train_pat.isdisjoint(val_pat)
+    assert train_pat.isdisjoint(test_pat)
+    assert val_pat.isdisjoint(test_pat)
+    assert len(test_pat) == 10
+    # Every study in train or val contributes all 4 rows to one side.
+    for partition in (train, val, test):
+        sizes = partition.groupby("patient_id").size()
+        assert (sizes == 4).all()
+
+
 def test_official_split_rejects_unexpected_split_values():
     df = pd.DataFrame(
         {

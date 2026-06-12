@@ -245,6 +245,61 @@ def load_rsna_case_metadata(
     return df
 
 
+_VINDR_SPLIT_REMAP = {"training": "train", "test": "test"}
+
+
+def load_vindr_case_metadata(
+    source_cfg: DatasetSourceConfig,
+    cache_dir: str | Path,
+    *,
+    client: Any = None,
+    project: str | None = None,
+) -> pd.DataFrame:
+    """Pull VinDr's breast-level_annotations.csv from GCS and normalize.
+
+    Three transformations make the CSV match the rest of the pipeline:
+
+    1. ``breast_birads`` ships as strings like ``"BI-RADS 4"``; we replace the
+       column with the parsed int so ``map_raw_label`` (and any downstream
+       consumer) sees clean integer labels.
+    2. ``split`` ships with values ``training``/``test``; we remap ``training``
+       -> ``train`` so ``official_split_train_val`` accepts it as-is.
+    3. ``case_folder`` is added (= study_id) so the manifest builder and
+       generic patient-grouping helpers find what they expect. The image
+       blob layout is ``images/{study_id}/{image_id}.png``.
+    """
+    uri = source_cfg.metadata_gcs_uri
+    if not uri:
+        raise ValueError(f"Dataset '{source_cfg.name}' has no metadata_gcs_uri configured.")
+
+    local_path = download_metadata_csv(uri, cache_dir, client=client, project=project)
+    df = pd.read_csv(local_path)
+
+    if source_cfg.raw_label_column in df.columns:
+        df[source_cfg.raw_label_column] = df[source_cfg.raw_label_column].map(_parse_birads_int)
+
+    if "split" in df.columns:
+        df["split"] = df["split"].map(lambda v: _VINDR_SPLIT_REMAP.get(str(v).strip(), str(v).strip()))
+
+    df["case_folder"] = df[source_cfg.patient_id_column].astype(str)
+    return df
+
+
+def _parse_birads_int(value: Any) -> int:
+    """Parse ``"BI-RADS N"`` (or a bare int/str) into the integer N.
+
+    Mirrors the digit-stripping behavior of ``manifest._parse_birads`` but
+    runs once at load time so the manifest sees ints, not strings.
+    """
+    if isinstance(value, (int,)) and not isinstance(value, bool):
+        return int(value)
+    text = str(value)
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        raise ValueError(f"Invalid BI-RADS value: {value!r}")
+    return int(digits)
+
+
 @dataclass(frozen=True)
 class ImageDownloadResult:
     """Outcome of a single image PNG download attempt.
@@ -502,6 +557,37 @@ def download_rsna_images_for_manifest(
             results.append(future.result())
 
     return sorted(results, key=lambda r: (r.case_folder, r.image_id))
+
+
+def download_vindr_images_for_manifest(
+    manifest_df: pd.DataFrame,
+    source_cfg: DatasetSourceConfig,
+    cache_dir: str | Path,
+    *,
+    case_folder_column: str = "case_folder",
+    image_id_column: str = "image_id",
+    max_workers: int = DEFAULT_IMAGE_DOWNLOAD_WORKERS,
+    client: Any = None,
+    project: str | None = None,
+) -> list[ImageDownloadResult]:
+    """Download one PNG per (study_id, image_id) in ``manifest_df``.
+
+    VinDr's blob layout (``images/{study_id}/{image_id}.png``) is identical in
+    shape to RSNA's, so this is a thin wrapper that delegates to the RSNA
+    downloader. Kept as a named entry point so the build script's routing is
+    explicit and so the dataset's downloader can diverge later without
+    breaking RSNA.
+    """
+    return download_rsna_images_for_manifest(
+        manifest_df,
+        source_cfg,
+        cache_dir,
+        case_folder_column=case_folder_column,
+        image_id_column=image_id_column,
+        max_workers=max_workers,
+        client=client,
+        project=project,
+    )
 
 
 def write_download_report(

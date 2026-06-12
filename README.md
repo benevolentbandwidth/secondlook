@@ -1,6 +1,6 @@
 # Second Look
 
-Second Look is a privacy-preserving, on-device mammogram analysis prototype. This branch (`integration/data-pipeline`) integrates the Phase 1 pipeline: a binary label mapper (CBIS-DDSM, RSNA, VinDr, INbreast to `WORTH_SECOND_LOOK` / `NOT_WORTH_SECOND_LOOK`) with UX tier helpers, a preprocessor (CLAHE, breast masking, pectoral removal, orientation, 224x224 float32 output), an input `quality_check` gate, a stratified splitter that honors CBIS's official train/test boundary, a GCS retriever for CBIS-DDSM, and a MobileNetV2 baseline classifier with a sigmoid head, binary-crossentropy training, and sensitivity-floor evaluation. Tests cover label round-trips, a fixture-gated preprocessing smoke test, mocked-GCS retriever tests, and an end-to-end smoke test on a sampled INbreast subset. See `second_look_work_breakdown_structure.docx`.
+Second Look is a privacy-preserving, on-device mammogram analysis prototype. This branch (`integration/data-pipeline`) integrates the Phase 1 pipeline: a binary label mapper (CBIS-DDSM, RSNA, VinDr, INbreast to `WORTH_SECOND_LOOK` / `NOT_WORTH_SECOND_LOOK`) with UX tier helpers, a preprocessor (CLAHE, breast masking, pectoral removal, orientation, 224x224 float32 output), an input `quality_check` gate, a stratified splitter (CBIS's official train/test boundary, or a patient-grouped 70/15/15 for RSNA), GCS retrievers for CBIS-DDSM, RSNA, and VinDr-Mammo, and a MobileNetV2 baseline classifier with a sigmoid head, binary-crossentropy training, and sensitivity-floor evaluation. **Trainable datasets:** CBIS-DDSM, RSNA Screening Mammography, and VinDr-Mammo are all wired end-to-end through `scripts/build_dataset.py` and produce a unified `data/manifest.csv` consumed by `modeling/train.py`. Tests cover label round-trips, a fixture-gated preprocessing smoke test, mocked-GCS retriever tests, and an end-to-end smoke test on a sampled INbreast subset. See `second_look_work_breakdown_structure.docx`.
 
 ## Setup
 
@@ -39,12 +39,6 @@ pytest tests/test_smoke.py -v
 ```
 
 **All tests** — `pytest tests/ -v`. Anything without its env var or fixture skips cleanly.
-
-## Adding a new dataset
-
-1. Add a mapper function in `data_pipeline/label_mapper.py` and register it in `map_dataset`. Unknown inputs must raise `ValueError` — never default silently.
-2. Add a `tests/test_smoke_<dataset>.py` modeled on [tests/test_smoke_inbreast.py](tests/test_smoke_inbreast.py), gated on a `<DATASET>_ROOT` env var.
-3. On Windows, use `cv2.imdecode(np.fromfile(path, dtype=np.uint8), ...)` instead of `cv2.imread` if the path may contain non-ASCII characters.
 
 ## Getting the CBIS-DDSM dataset
 
@@ -107,7 +101,7 @@ RSNA Screening Mammography Breast Cancer Detection (Kaggle 2022) lives at `gs://
 - `train_images/{patient_id}/{image_id}.png` — pre-converted PNGs.
 - `test.csv` and `test_images/` — Kaggle's hidden competition split, no labels. Ignored by the build script.
 
-Because the test labels are unavailable, the build uses a stratified 70/15/15 split on the labeled train set. The auth setup is identical to CBIS (ADC).
+Because the test labels are unavailable, the build uses a patient-grouped, stratified 70/15/15 split on the labeled train set. All images from one patient (typically 4: L-CC, L-MLO, R-CC, R-MLO) stay in the same partition, so no patient leaks across train/val/test. RSNA labels are per-breast — a patient with unilateral cancer contributes both a positive and a negative image, both landing in the same split. The auth setup is identical to CBIS (ADC).
 
 Full RSNA build:
 
@@ -121,13 +115,37 @@ Small smoke test (~100 images):
 python scripts/build_dataset.py --use-gcs --datasets rsna --cache-dir data/cache --limit 100
 ```
 
-Both datasets at once:
+All datasets at once:
 
 ```bash
-python scripts/build_dataset.py --use-gcs --datasets cbis rsna --cache-dir data/cache
+python scripts/build_dataset.py --use-gcs --datasets cbis rsna vindr --cache-dir data/cache
 ```
 
-The image manifest gains an `image_id` column (CBIS rows leave it empty; RSNA fills it with the PNG filename stem). The download report is split per-dataset: `image_download_report_cbis.csv`, `image_download_report_rsna.csv`.
+The image manifest gains an `image_id` column (CBIS rows leave it empty; RSNA and VinDr fill it with the PNG filename stem). The download report is split per-dataset: `image_download_report_cbis.csv`, `image_download_report_rsna.csv`, `image_download_report_vindr.csv`.
+
+## Getting the VinDr-Mammo dataset
+
+VinDr-Mammo (PhysioNet 1.0.0) lives at `gs://b2-foundation/second-look/VinDR/physionet.org/files/vindr-mammo/1.0.0/`. The bucket already holds pre-converted PNGs, so no DICOM dependency is needed. Layout:
+
+- `breast-level_annotations.csv` — labels (`breast_birads` strings like `"BI-RADS 4"`) and metadata for 20,000 images across 5,000 studies (one study per patient, four images per study: L-CC, L-MLO, R-CC, R-MLO). Also publishes an official `split` column with values `training` and `test`.
+- `images/{study_id}/{image_id}.png` — pre-converted PNGs.
+- `finding_annotations.csv` — finding-level bounding boxes. Not consumed by the binary pipeline; the build script reads `breast-level_annotations.csv` only.
+
+**Label mapping.** `breast_birads` values span `BI-RADS 1` through `BI-RADS 5` (no 0, no 6). The retriever parses the string into the integer N before mapping. BI-RADS 4 and 5 map to `WORTH_SECOND_LOOK` (1); BI-RADS 1–3 map to `NOT_WORTH_SECOND_LOOK` (0). Configured in `config/label_maps.yaml`.
+
+**Split.** VinDr's official train/test boundary is honored via `official_split_train_val`. Val is carved out of train at 15% **grouped by `patient_id`** (= `study_id`) so a single study's four images cannot straddle the train/val line. Empirically, every VinDr study has uniform BI-RADS across all four images (L/R and CC/MLO match), so the per-breast / per-image distinction does not introduce asymmetric labels the way RSNA does. The auth setup is identical to CBIS (ADC).
+
+Full VinDr build:
+
+```bash
+python scripts/build_dataset.py --use-gcs --datasets vindr --cache-dir data/cache
+```
+
+Small smoke test (~100 images):
+
+```bash
+python scripts/build_dataset.py --use-gcs --datasets vindr --cache-dir data/cache --limit 100
+```
 
 ### Useful flags
 
