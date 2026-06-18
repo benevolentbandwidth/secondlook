@@ -56,16 +56,22 @@ URI_TO_BODY = {
 
 
 def _fake_storage_client(
-    payloads: dict[str, str], *, png_objects_by_prefix: dict[str, list[str]] | None = None
+    payloads: dict[str, str],
+    *,
+    png_objects_by_prefix: dict[str, list[str]] | None = None,
+    sizes_by_object: dict[str, int] | None = None,
 ) -> MagicMock:
     """Build a MagicMock that mimics google.cloud.storage.Client.
 
     - ``payloads``: maps 'gs://bucket/object' -> file body for downloads.
     - ``png_objects_by_prefix``: maps a prefix (e.g. 'images/Calc-X/') to the
       list of object names returned by list_blobs for that prefix.
+    - ``sizes_by_object``: maps an object name -> blob size in bytes (defaults
+      to the object name's length when unset), used by largest-file selection.
     """
     client = MagicMock()
     png_objects_by_prefix = png_objects_by_prefix or {}
+    sizes_by_object = sizes_by_object or {}
 
     def _bucket(name: str) -> MagicMock:
         bucket = MagicMock()
@@ -93,6 +99,7 @@ def _fake_storage_client(
         for n in png_objects_by_prefix.get(prefix, []):
             blob = MagicMock()
             blob.name = n
+            blob.size = sizes_by_object.get(n, len(n))
             result.append(blob)
         return result
 
@@ -203,28 +210,38 @@ def test_download_images_for_manifest_lists_then_downloads_and_caches(tmp_path):
     client.list_blobs.assert_not_called()
 
 
-def test_download_images_for_manifest_reports_missing_and_multiple(tmp_path):
+def test_download_images_for_manifest_reports_missing_and_selects_largest(tmp_path):
     sources = load_sources_config(REPO_ROOT / "config" / "sources.yaml")
     cbis = sources["cbis"]
     manifest = pd.DataFrame({"case_folder": ["Case-Missing", "Case-Ambiguous"]})
 
     prefix = cbis.images_gcs_prefix.rstrip("/")
+    small = f"{prefix}/Case-Ambiguous/u1/a.png"
+    large = f"{prefix}/Case-Ambiguous/u1/b.png"
     png_objects = {
         f"{prefix}/Case-Missing/": [],
-        f"{prefix}/Case-Ambiguous/": [
-            f"{prefix}/Case-Ambiguous/u1/a.png",
-            f"{prefix}/Case-Ambiguous/u1/b.png",
-        ],
+        f"{prefix}/Case-Ambiguous/": [small, large],
     }
-    client = _fake_storage_client({}, png_objects_by_prefix=png_objects)
+    # Make the second blob the larger one so selection is unambiguous.
+    client = _fake_storage_client(
+        {}, png_objects_by_prefix=png_objects, sizes_by_object={small: 100, large: 5000}
+    )
 
     results = download_images_for_manifest(manifest, cbis, tmp_path, client=client)
-    statuses = {r.case_folder: r.status for r in results}
-    assert statuses == {"Case-Missing": "missing", "Case-Ambiguous": "multiple"}
+    by_case = {r.case_folder: r for r in results}
+
+    assert by_case["Case-Missing"].status == "missing"
+    # Multiple PNGs are no longer dropped: the largest file is selected and the
+    # case still reaches the manifest with a downloaded local_path.
+    ambiguous = by_case["Case-Ambiguous"]
+    assert ambiguous.status == "downloaded"
+    assert ambiguous.gcs_object == large
+    assert ambiguous.local_path is not None and ambiguous.local_path.exists()
+    assert "selected largest of 2" in ambiguous.detail
 
     report = write_download_report(results, tmp_path / "report.csv")
     df = pd.read_csv(report)
-    assert set(df["status"]) == {"missing", "multiple"}
+    assert set(df["status"]) == {"missing", "downloaded"}
 
 
 RSNA_TRAIN_CSV = (
