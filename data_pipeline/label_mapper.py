@@ -36,6 +36,7 @@
 #   produce confident output.
 
 from enum import Enum
+from typing import Any
 
 
 class Label(Enum):
@@ -202,21 +203,32 @@ TIER_DISPLAY_LABELS = {
     "Elevated": "Elevated Area of Interest",
 }
 
+# Tier cut-points on the positive-class probability:
+#   prob < low_max       → Low
+#   prob < moderate_max  → Moderate
+#   otherwise            → Elevated
+#
+# PROVISIONAL — these evenly-spaced defaults are placeholders so the UI has
+# something functional to render during integration. They are NOT clinically
+# calibrated. calibrate_thresholds() is the home for replacing them with
+# asymmetric, sensitivity-favoring cuts once validation data exists.
+TIER_THRESHOLDS = {"low_max": 0.33, "moderate_max": 0.66}
 
-def confidence_to_tier(prob: float) -> str:
+
+def confidence_to_tier(prob: float, thresholds: dict[str, float] = TIER_THRESHOLDS) -> str:
     """Map a positive-class probability to a UX concern tier.
 
-    PROVISIONAL THRESHOLDS — PLACEHOLDER PENDING CALIBRATION.
-    These cut-points (<0.33 → Low, <0.66 → Moderate, else Elevated) are
-    evenly-spaced defaults so the UI layer has something functional to
-    render during integration work. They are NOT clinically calibrated and
-    must be revisited once real validation data is available — the right
-    cuts will almost certainly be asymmetric (e.g., pushing the Elevated
-    threshold lower to favor sensitivity per the failure-mode hierarchy).
+    The cut-points come from ``thresholds`` (defaults to the provisional
+    ``TIER_THRESHOLDS``). Pass a calibrated dict from ``calibrate_thresholds``
+    once validation data is available; the defaults are NOT clinically
+    calibrated and the real cuts will almost certainly be asymmetric (pushing
+    the Elevated threshold lower to favor sensitivity per the failure-mode
+    hierarchy).
 
     Args:
         prob: Positive-class probability in [0.0, 1.0] — the sigmoid output
               of the binary Second Look model.
+        thresholds: Mapping with 'low_max' and 'moderate_max' cut-points.
 
     Returns:
         One of 'Low', 'Moderate', 'Elevated'.
@@ -227,11 +239,49 @@ def confidence_to_tier(prob: float) -> str:
     if not (0.0 <= prob <= 1.0):
         raise ValueError(f"Probability out of range [0, 1]: {prob}")
 
-    if prob < 0.33:
+    if prob < thresholds["low_max"]:
         return "Low"
-    if prob < 0.66:
+    if prob < thresholds["moderate_max"]:
         return "Moderate"
     return "Elevated"
+
+
+def calibrate_thresholds(val_df: Any, model: Any) -> dict[str, float]:
+    """Derive calibrated tier cut-points from validation data. NOT YET IMPLEMENTED.
+
+    This is the designated home for replacing the provisional, evenly-spaced
+    ``TIER_THRESHOLDS`` with data-driven cut-points. The intended contract:
+
+    1. Run ``model`` over the validation images in ``val_df`` to get a
+       positive-class probability per case, paired with its true binary label.
+    2. Choose ``moderate_max`` (the Moderate→Elevated boundary) as the
+       operating point that meets the positive-class sensitivity requirement —
+       ``WORTH_SENSITIVITY_FLOOR`` in ``modeling.baseline_classifier`` (0.80).
+       Per the failure-mode hierarchy, this cut is deliberately ASYMMETRIC:
+       pushed lower than a balanced 0.66 so borderline cases escalate to
+       Elevated rather than risk false reassurance.
+    3. Choose ``low_max`` (the Low→Moderate boundary) to keep the Low tier
+       high-specificity — only confidently non-actionable cases land in Low.
+
+    Args:
+        val_df: Validation split (e.g. a manifest DataFrame) with image paths
+                and binary ``canonical_label`` values.
+        model: Trained binary classifier exposing a ``predict``-style call that
+               returns positive-class probabilities.
+
+    Returns:
+        A dict with 'low_max' and 'moderate_max', drop-in compatible with
+        ``confidence_to_tier(prob, thresholds=...)``.
+
+    Raises:
+        NotImplementedError: Always, until calibration is implemented against a
+            trained model and a built validation split.
+    """
+    raise NotImplementedError(
+        "Tier threshold calibration is not implemented yet. "
+        "confidence_to_tier() currently uses the provisional TIER_THRESHOLDS. "
+        "See this function's docstring for the intended calibration contract."
+    )
 
 
 def display_label(tier: str) -> str:

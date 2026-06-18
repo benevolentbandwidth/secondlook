@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,13 @@ from data_pipeline.retriever import (
 )
 
 
+# Provenance columns stamped onto every manifest so a built manifest can be
+# tied back to *when* it was built and *which* source CSV version produced it.
+PROVENANCE_COLUMNS = [
+    "manifest_built_at",
+    "metadata_source_hash",
+]
+
 MANIFEST_COLUMNS = [
     "dataset",
     "patient_id",
@@ -24,6 +33,7 @@ MANIFEST_COLUMNS = [
     "raw_label_values",
     "record_count",
     "source_refs",
+    *PROVENANCE_COLUMNS,
 ]
 
 IMAGE_MANIFEST_COLUMNS = [
@@ -36,6 +46,7 @@ IMAGE_MANIFEST_COLUMNS = [
     "canonical_label",
     "split",
     "image_local_path",
+    *PROVENANCE_COLUMNS,
 ]
 
 
@@ -142,6 +153,7 @@ def build_patient_manifest_for_dataset(
         .reset_index()
     )
     grouped.insert(0, "dataset", dataset)
+    grouped = _with_provenance(grouped, metadata_df)
     return grouped[MANIFEST_COLUMNS]
 
 
@@ -193,6 +205,7 @@ def build_cbis_image_manifest(
     )
     grouped["image_id"] = ""
     grouped["image_local_path"] = ""
+    grouped = _with_provenance(grouped, metadata_df)
     return grouped[IMAGE_MANIFEST_COLUMNS]
 
 
@@ -234,6 +247,7 @@ def build_rsna_image_manifest(
     working = working.drop_duplicates(subset=["case_folder", "image_id"]).reset_index(drop=True)
     working["split"] = ""
     working["image_local_path"] = ""
+    working = _with_provenance(working, metadata_df)
     return working[IMAGE_MANIFEST_COLUMNS]
 
 
@@ -278,6 +292,7 @@ def build_vindr_image_manifest(
     )
     working = working.drop_duplicates(subset=["case_folder", "image_id"]).reset_index(drop=True)
     working["image_local_path"] = ""
+    working = _with_provenance(working, metadata_df)
     return working[IMAGE_MANIFEST_COLUMNS]
 
 
@@ -338,6 +353,25 @@ def build_patient_manifest(
 
     manifest = pd.concat(frames, ignore_index=True)
     return manifest.sort_values(["dataset", "patient_id"]).reset_index(drop=True)
+
+
+def _metadata_source_hash(metadata_df: pd.DataFrame) -> str:
+    """Content hash of the source metadata, so a manifest ties back to its CSV.
+
+    Uses a row-wise content hash (order-sensitive) rather than the file bytes so
+    it works whether the metadata came from a local CSV or was assembled in
+    memory from several GCS CSVs.
+    """
+    row_hashes = pd.util.hash_pandas_object(metadata_df, index=True).to_numpy()
+    return hashlib.sha256(row_hashes.tobytes()).hexdigest()[:16]
+
+
+def _with_provenance(manifest_df: pd.DataFrame, metadata_df: pd.DataFrame) -> pd.DataFrame:
+    """Stamp ``manifest_built_at`` and ``metadata_source_hash`` onto a manifest."""
+    manifest_df = manifest_df.copy()
+    manifest_df["manifest_built_at"] = datetime.now(timezone.utc).isoformat()
+    manifest_df["metadata_source_hash"] = _metadata_source_hash(metadata_df)
+    return manifest_df
 
 
 def _require_columns(df: pd.DataFrame, dataset: str, required: list[str]) -> None:
