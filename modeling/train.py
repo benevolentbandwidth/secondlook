@@ -65,7 +65,7 @@ def train_baseline(
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
         loss="binary_crossentropy",
-        metrics=["accuracy"],
+        metrics=["accuracy", tf.keras.metrics.AUC(name="auc")],
     )
 
     class_weights = compute_class_weights(list(train_df[label_col]))
@@ -155,12 +155,14 @@ def _build_callbacks(checkpoint_dir: str) -> list:
     return [
         tf.keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(checkpoint_dir, "best.keras"),
-            monitor="val_loss",
+            monitor="val_auc",
+            mode="max",
             save_best_only=True,
             verbose=1,
         ),
         tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss",
+            monitor="val_auc",
+            mode="max",
             patience=7,
             restore_best_weights=True,
             verbose=1,
