@@ -172,8 +172,13 @@ def _build_callbacks(checkpoint_dir: str) -> list:
             save_best_only=True,
             verbose=1,
         ),
+        # Monitor the same metric as ModelCheckpoint (val_auc) so the weights
+        # restored in memory match the best.keras written to disk. Mixing
+        # val_loss here with val_auc above would let the saved checkpoint and
+        # the returned model come from different epochs.
         tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss",
+            monitor="val_auc",
+            mode="max",
             patience=7,
             restore_best_weights=True,
             verbose=1,
