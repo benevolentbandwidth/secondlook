@@ -20,14 +20,11 @@ import cv2
 import numpy as np
 
 from config.constants import INPUT_SIZE
+from data_pipeline._imaging_utils import breast_mask, to_grayscale
 
 
 # Default target size: MobileNetV2 / EfficientNetB0 standard input, per CLAUDE.md.
 DEFAULT_SIZE = INPUT_SIZE  # (224, 224)
-
-# CLAHE parameters. clipLimit controls contrast enhancement aggressiveness.
-# tileGridSize sets the local region size for histogram equalization.
-_CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +35,7 @@ def preprocess(image: np.ndarray, target_size: tuple = DEFAULT_SIZE) -> np.ndarr
     """Full preprocessing pipeline for a single mammogram image.
 
     Args:
-        image: Raw image as a numpy array (grayscale or RGB, any uint8 dtype).
+        image: Raw image as a numpy array (grayscale or RGB, uint8 or uint16).
         target_size: (width, height) to resize to after all preprocessing steps.
 
     Returns:
@@ -50,9 +47,9 @@ def preprocess(image: np.ndarray, target_size: tuple = DEFAULT_SIZE) -> np.ndarr
     if image is None or image.size == 0:
         raise ValueError("Received an empty image array.")
 
-    gray = _to_grayscale(image)
+    gray = to_grayscale(image)
     clahe = _apply_clahe(gray)
-    mask = _breast_mask(clahe)
+    mask = breast_mask(clahe)
     masked = cv2.bitwise_and(clahe, clahe, mask=mask)
     no_pec = _remove_pectoral(masked, mask)
     oriented = _normalize_orientation(no_pec, mask)
@@ -65,7 +62,7 @@ def load_image(path: str | Path) -> np.ndarray:
     """Load a mammogram image from disk into a numpy array.
 
     Preserves the source bit depth (8- or 16-bit) so downstream CLAHE can
-    normalize from the full dynamic range. CBIS-DDSM PNGs converted from
+    enhance from the full dynamic range. CBIS-DDSM PNGs converted from
     DICOM are often 16-bit grayscale.
     """
     file_path = Path(path)
@@ -86,44 +83,24 @@ def load_and_preprocess(path: str | Path, target_size: tuple = DEFAULT_SIZE) -> 
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _to_grayscale(image: np.ndarray) -> np.ndarray:
-    if image.ndim == 2:
-        return image
-    if image.ndim == 3 and image.shape[2] == 3:
-        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    if image.ndim == 3 and image.shape[2] == 4:
-        return cv2.cvtColor(image, cv2.COLOR_BGRA2GRAY)
-    raise ValueError(f"Unsupported image shape: {image.shape}")
-
-
 def _apply_clahe(gray: np.ndarray) -> np.ndarray:
-    if gray.dtype != np.uint8:
-        gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    return _CLAHE.apply(gray)
+    """Apply CLAHE on the native bit depth, then normalize to uint8.
 
+    CLAHE runs on the original depth (OpenCV handles uint16 natively) so the
+    contrast step uses the full dynamic range of DICOM-converted PNGs before
+    any quantization. Only after enhancement do we normalize down to uint8.
 
-def _breast_mask(gray: np.ndarray) -> np.ndarray:
-    """Binary mask isolating breast tissue from background.
-
-    Uses Otsu thresholding + morphological cleanup. Returns a uint8 mask
-    where 255 = tissue, 0 = background.
+    The CLAHE object is created per call rather than shared at module level:
+    OpenCV's CLAHE instances hold internal buffers and are NOT thread-safe, and
+    preprocessing runs in parallel (tf.data num_parallel_calls). A shared
+    instance would produce subtle, hard-to-reproduce corruption under
+    concurrency. Per-call construction is cheap relative to the pipeline.
     """
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    # Keep only the largest connected component (the breast).
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
-    if num_labels < 2:
-        # Fallback: return the full image as mask if segmentation fails.
-        return binary
-
-    # Label 0 is background; find the largest foreground component.
-    largest = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
-    mask = np.where(labels == largest, 255, 0).astype(np.uint8)
-
-    # Morphological close to fill small holes in tissue.
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    return mask
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    if enhanced.dtype != np.uint8:
+        enhanced = cv2.normalize(enhanced, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    return enhanced
 
 
 def _remove_pectoral(gray: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -160,6 +137,15 @@ def _remove_pectoral(gray: np.ndarray, mask: np.ndarray) -> np.ndarray:
     pec_mask = np.zeros((h, w), dtype=np.uint8)
     pts = np.array([[0, 0], [x2, y2], [x1, y1], [0, y1]], dtype=np.int32)
     cv2.fillPoly(pec_mask, [pts], 255)
+
+    # False-positive guard: a real pectoral triangle is a corner wedge. If the
+    # detected region covers an implausibly large fraction of the image, the
+    # line is more likely an artifact (e.g. an MLO scan line) and zeroing it
+    # would silently destroy real tissue. Skip removal rather than risk that.
+    pec_fraction = (pec_mask > 0).sum() / pec_mask.size
+    if pec_fraction > 0.25:
+        return result
+
     result[pec_mask > 0] = 0
     return result
 
