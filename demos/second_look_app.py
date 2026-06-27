@@ -26,10 +26,22 @@ import tensorflow as tf
 from data_pipeline.preprocessor import preprocess, load_image
 from data_pipeline.label_mapper import confidence_to_tier, display_label
 
-CKPT = REPO / "modeling" / "checkpoints" / "smoke" / "best.keras"
+# Prefer the larger overnight checkpoint if present, else the 1-epoch smoke
+# model. Either way the model is a frozen-head baseline — predictions remain
+# placeholders and the UI banner says so.
+_CKPT_CANDIDATES = [
+    REPO / "modeling" / "checkpoints" / "overnight" / "best.keras",
+    REPO / "modeling" / "checkpoints" / "smoke" / "best.keras",
+]
+CKPT = next((p for p in _CKPT_CANDIDATES if p.exists()), _CKPT_CANDIDATES[-1])
 MANIFEST = REPO / "data" / "manifest.csv"
 
 TIER_COLORS = {"Low": "#2e7d32", "Moderate": "#f9a825", "Elevated": "#c62828"}
+
+# Binary decision threshold on P(WORTH_SECOND_LOOK). 0.5 is the default
+# operating point; the real threshold will be tuned to the sensitivity floor
+# once the evaluation protocol is locked.
+WORTH_THRESHOLD = 0.5
 
 _model = tf.keras.models.load_model(str(CKPT)) if CKPT.exists() else None
 
@@ -52,17 +64,32 @@ def _sample_choices() -> dict[str, str]:
 SAMPLES = _sample_choices()
 
 
-def _tier_html(prob: float) -> str:
+def _result_html(prob: float) -> str:
+    """Render the binary verdict (primary) plus the concern tier (supporting)."""
+    worth = prob >= WORTH_THRESHOLD
+    if worth:
+        verdict, vcolor, vicon = "Worth a second look", "#c62828", "⚠️"
+    else:
+        verdict, vcolor, vicon = "Not worth a second look", "#2e7d32", "✅"
+
     tier = confidence_to_tier(prob)
-    color = TIER_COLORS[tier]
+    tier_color = TIER_COLORS[tier]
+
     return (
-        f"<div style='text-align:center;padding:18px;border-radius:12px;"
-        f"background:{color};color:white;font-family:sans-serif;'>"
-        f"<div style='font-size:14px;opacity:0.9;'>Concern tier</div>"
-        f"<div style='font-size:30px;font-weight:700;margin-top:4px;'>"
-        f"{display_label(tier)}</div>"
-        f"<div style='font-size:13px;opacity:0.85;margin-top:8px;'>"
-        f"model confidence (placeholder): {prob:.2f}</div></div>"
+        # Primary: the binary classification, stated plainly.
+        f"<div style='text-align:center;padding:22px;border-radius:14px;"
+        f"background:{vcolor};color:white;font-family:sans-serif;'>"
+        f"<div style='font-size:13px;letter-spacing:1px;opacity:0.9;'>RESULT</div>"
+        f"<div style='font-size:32px;font-weight:800;margin-top:6px;'>"
+        f"{vicon} {verdict}</div></div>"
+        # Supporting: the UX concern tier + the (placeholder) raw confidence.
+        f"<div style='text-align:center;padding:12px;margin-top:10px;"
+        f"border-radius:12px;border:2px solid {tier_color};color:{tier_color};"
+        f"font-family:sans-serif;'>"
+        f"<div style='font-size:13px;opacity:0.85;'>Concern tier</div>"
+        f"<div style='font-size:22px;font-weight:700;'>{display_label(tier)}</div>"
+        f"<div style='font-size:12px;color:#777;margin-top:6px;'>"
+        f"model output (placeholder): {prob:.2f}</div></div>"
     )
 
 
@@ -81,7 +108,7 @@ def analyze(sample_key: str, uploaded: np.ndarray | None):
         return disp, "<div style='padding:18px;color:#c62828;'>No checkpoint found.</div>"
 
     prob = float(_model.predict(proc[None, ...], verbose=0).ravel()[0])
-    return disp, _tier_html(prob)
+    return disp, _result_html(prob)
 
 
 BANNER = (
