@@ -14,6 +14,8 @@
 import cv2
 import numpy as np
 
+from data_pipeline._imaging_utils import breast_mask, to_grayscale
+
 
 def quality_check(image: np.ndarray) -> tuple[bool, str]:
     """Gate to reject images that cannot be analyzed reliably.
@@ -33,7 +35,7 @@ def quality_check(image: np.ndarray) -> tuple[bool, str]:
     if image is None or image.size == 0:
         return False, "Image is empty or could not be loaded."
 
-    gray = _to_grayscale(image)
+    gray = to_grayscale(image)
 
     h, w = gray.shape
     if h < 256 or w < 256:
@@ -42,7 +44,7 @@ def quality_check(image: np.ndarray) -> tuple[bool, str]:
             "Please provide a clearer photo or scan."
         )
 
-    mask = _breast_mask(gray)
+    mask = breast_mask(gray)
     tissue_fraction = mask.sum() / (255.0 * mask.size)
     if tissue_fraction < 0.10:
         return False, (
@@ -88,31 +90,3 @@ def quality_gate(img: np.ndarray) -> str:
     if np.mean(gray < 15) > 0.75:
         issues += 1
     return 'USABLE' if issues == 0 else ('BORDERLINE' if issues == 1 else 'UNUSABLE')
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers (duplicated from preprocessor to avoid a circular import;
-# both modules need cheap grayscale + breast-mask primitives, and the
-# preprocessor is a heavier dependency to pull in from the quality gate.)
-# ---------------------------------------------------------------------------
-
-def _to_grayscale(image: np.ndarray) -> np.ndarray:
-    if image.ndim == 2:
-        return image
-    if image.ndim == 3 and image.shape[2] == 3:
-        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    if image.ndim == 3 and image.shape[2] == 4:
-        return cv2.cvtColor(image, cv2.COLOR_BGRA2GRAY)
-    raise ValueError(f"Unsupported image shape: {image.shape}")
-
-
-def _breast_mask(gray: np.ndarray) -> np.ndarray:
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
-    if num_labels < 2:
-        return binary
-    largest = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
-    mask = np.where(labels == largest, 255, 0).astype(np.uint8)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    return mask
