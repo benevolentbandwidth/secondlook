@@ -70,7 +70,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--allow-missing-metadata", action="store_true")
     parser.add_argument(
         "--use-gcs", action="store_true",
-        help="Pull CBIS metadata + images from GCS instead of local fixtures.",
+        help="Pull dataset metadata + images from GCS. Required for a real build; "
+             "without it, supply local metadata via --allow-missing-metadata or a "
+             "custom sources.yaml metadata_local_path.",
     )
     parser.add_argument(
         "--cache-dir", default="data/cache",
