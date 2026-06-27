@@ -12,7 +12,6 @@ datasets:
       - "gs://b2-foundation/second-look/DDSM/calc_case_description_test_set.csv"
       - "gs://b2-foundation/second-look/DDSM/mass_case_description_train_set.csv"
       - "gs://b2-foundation/second-look/DDSM/mass_case_description_test_set.csv"
-    metadata_local_path: "tests/fixtures/cbis_ddsm_metadata.csv"
     images_gcs_prefix: "second-look/DDSM/cbis_ddsm/"
     image_extension: "png"
     official_split: true
@@ -27,7 +26,6 @@ datasets:
     # Only train.csv is labeled; test.csv is the hidden competition split (4 rows,
     # no `cancer` column), so we ignore it and stratify-split train into 70/15/15.
     metadata_gcs_uri: "gs://b2-foundation/second-look/RSNA/rsna-breast-cancer-detection/train.csv"
-    metadata_local_path: "tests/fixtures/rsna_metadata.csv"
     images_gcs_prefix: "second-look/RSNA/rsna-breast-cancer-detection/train_images/"
     image_extension: "png"
     official_split: false
@@ -46,7 +44,6 @@ datasets:
     # we use the official-split path. study_id acts as patient_id (one study
     # per patient, four images per study).
     metadata_gcs_uri: "gs://b2-foundation/second-look/VinDR/physionet.org/files/vindr-mammo/1.0.0/breast-level_annotations.csv"
-    metadata_local_path: "tests/fixtures/vindr_metadata.csv"
     images_gcs_prefix: "second-look/VinDR/physionet.org/files/vindr-mammo/1.0.0/images/"
     image_extension: "png"
     official_split: true

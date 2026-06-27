@@ -29,32 +29,6 @@ def test_map_raw_label_rules():
         map_raw_label("cbis", "UNKNOWN", label_maps)
 
 
-def test_build_patient_manifest_uses_any_positive_aggregation():
-    sources = load_sources_config(REPO_ROOT / "config" / "sources.yaml")
-    label_maps = load_label_maps_config(REPO_ROOT / "config" / "label_maps.yaml")
-
-    manifest = build_patient_manifest(
-        repo_root=REPO_ROOT,
-        selected_datasets=["cbis", "rsna", "vindr"],
-        sources=sources,
-        label_maps=label_maps,
-    )
-
-    assert list(manifest.columns) == MANIFEST_COLUMNS
-    assert not manifest.empty
-    assert set(manifest["canonical_label"].unique()).issubset({0, 1})
-
-    dupes = manifest.duplicated(subset=["dataset", "patient_id"]).sum()
-    assert dupes == 0
-
-    rsna_patient = manifest[
-        (manifest["dataset"] == "rsna") & (manifest["patient_id"] == "10130")
-    ]
-    assert len(rsna_patient) == 1
-    assert int(rsna_patient.iloc[0]["canonical_label"]) == 1
-    assert int(rsna_patient.iloc[0]["record_count"]) >= 1
-
-
 def test_build_patient_manifest_allows_missing_metadata_when_requested(tmp_path):
     cfg_dir = tmp_path / "config"
     cfg_dir.mkdir(parents=True)

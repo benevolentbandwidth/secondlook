@@ -36,7 +36,7 @@ def train_baseline(
     input_size: tuple = INPUT_SIZE,
     batch_size: int = 32,
     max_epochs: int = 50,
-    checkpoint_dir: str = "checkpoints/baseline",
+    checkpoint_dir: str = "gs://b2-foundation/second-look/checkpoints/baseline",
     freeze_backbone: bool = True,
 ) -> tf.keras.callbacks.History:
     """Train the baseline MobileNetV2 classifier with a binary head.
@@ -56,7 +56,9 @@ def train_baseline(
     Returns:
         Keras History object from model.fit().
     """
-    os.makedirs(checkpoint_dir, exist_ok=True)
+    # gfile.makedirs handles both local paths and gs:// URIs (os.makedirs would
+    # create a junk local directory for a gs:// path).
+    tf.io.gfile.makedirs(checkpoint_dir)
 
     train_ds = _build_dataset(train_df, image_dir, image_col, label_col, input_size, batch_size, shuffle=True)
     val_ds = _build_dataset(val_df, image_dir, image_col, label_col, input_size, batch_size, shuffle=False)
@@ -65,7 +67,7 @@ def train_baseline(
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
         loss="binary_crossentropy",
-        metrics=["accuracy"],
+        metrics=["accuracy", tf.keras.metrics.AUC(name="auc")],
     )
 
     class_weights = compute_class_weights(list(train_df[label_col]))
@@ -151,16 +153,32 @@ def _numpy_preprocess(image_np: np.ndarray, input_size: tuple) -> np.ndarray:
 # Callbacks
 # ---------------------------------------------------------------------------
 
+def _checkpoint_path(checkpoint_dir: str, filename: str) -> str:
+    """Join a checkpoint dir and filename, keeping forward slashes for gs:// URIs.
+
+    os.path.join inserts a backslash on Windows, which corrupts gs:// paths.
+    """
+    if "://" in checkpoint_dir:
+        return checkpoint_dir.rstrip("/") + "/" + filename
+    return os.path.join(checkpoint_dir, filename)
+
+
 def _build_callbacks(checkpoint_dir: str) -> list:
     return [
         tf.keras.callbacks.ModelCheckpoint(
-            filepath=os.path.join(checkpoint_dir, "best.keras"),
-            monitor="val_loss",
+            filepath=_checkpoint_path(checkpoint_dir, "best.keras"),
+            monitor="val_auc",
+            mode="max",
             save_best_only=True,
             verbose=1,
         ),
+        # Monitor the same metric as ModelCheckpoint (val_auc) so the weights
+        # restored in memory match the best.keras written to disk. Mixing
+        # val_loss here with val_auc above would let the saved checkpoint and
+        # the returned model come from different epochs.
         tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss",
+            monitor="val_auc",
+            mode="max",
             patience=7,
             restore_best_weights=True,
             verbose=1,
