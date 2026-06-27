@@ -27,7 +27,11 @@ DEFAULT_SIZE = INPUT_SIZE  # (224, 224)
 
 # CLAHE parameters. clipLimit controls contrast enhancement aggressiveness.
 # tileGridSize sets the local region size for histogram equalization.
-_CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+# A cv2.CLAHE object is stateful and NOT thread-safe; the tf.data training
+# pipeline maps preprocessing with num_parallel_calls > 1, so we construct a
+# fresh CLAHE per call (cheap) instead of sharing one module-level instance.
+_CLAHE_CLIP_LIMIT = 2.0
+_CLAHE_TILE_GRID_SIZE = (8, 8)
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +93,10 @@ def load_and_preprocess(path: str | Path, target_size: tuple = DEFAULT_SIZE) -> 
 def _to_grayscale(image: np.ndarray) -> np.ndarray:
     if image.ndim == 2:
         return image
+    if image.ndim == 3 and image.shape[2] == 1:
+        # Single-channel 3D (e.g. tf.image.decode_png(channels=1)) is already
+        # grayscale; drop the trailing axis to a 2D (H, W) array.
+        return image[:, :, 0]
     if image.ndim == 3 and image.shape[2] == 3:
         return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     if image.ndim == 3 and image.shape[2] == 4:
@@ -99,7 +107,10 @@ def _to_grayscale(image: np.ndarray) -> np.ndarray:
 def _apply_clahe(gray: np.ndarray) -> np.ndarray:
     if gray.dtype != np.uint8:
         gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    return _CLAHE.apply(gray)
+    # Construct per-call: cv2.CLAHE is not thread-safe and this runs under
+    # tf.data parallel map workers (see note at module top).
+    clahe = cv2.createCLAHE(clipLimit=_CLAHE_CLIP_LIMIT, tileGridSize=_CLAHE_TILE_GRID_SIZE)
+    return clahe.apply(gray)
 
 
 def _breast_mask(gray: np.ndarray) -> np.ndarray:

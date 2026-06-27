@@ -99,6 +99,10 @@ def quality_gate(img: np.ndarray) -> str:
 def _to_grayscale(image: np.ndarray) -> np.ndarray:
     if image.ndim == 2:
         return image
+    if image.ndim == 3 and image.shape[2] == 1:
+        # Single-channel 3D (e.g. tf.image.decode_png(channels=1)) is already
+        # grayscale; drop the trailing axis to a 2D (H, W) array.
+        return image[:, :, 0]
     if image.ndim == 3 and image.shape[2] == 3:
         return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     if image.ndim == 3 and image.shape[2] == 4:
