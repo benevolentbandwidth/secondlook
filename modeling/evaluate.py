@@ -125,14 +125,14 @@ def _print_results(
     threshold: float,
 ) -> None:
     print("\n" + "=" * 60)
-    print("SECOND LOOK — BASELINE EVALUATION")
+    print("SECOND LOOK - BASELINE EVALUATION")
     print("=" * 60)
 
     print(f"\nDecision threshold: {threshold:.2f}")
 
     print("\nSensitivity (Recall) per class:")
     for i, name in enumerate(LABEL_ORDER):
-        marker = " ← PRIMARY METRIC" if i == POSITIVE_CLASS_INDEX else ""
+        marker = " <-- PRIMARY METRIC" if i == POSITIVE_CLASS_INDEX else ""
         print(f"  {name:25s}: {per_class_sensitivity[i]:.3f}{marker}")
 
     floor = WORTH_SENSITIVITY_FLOOR
