@@ -26,6 +26,7 @@ import pandas as pd
 
 from config.constants import INPUT_SIZE
 from data_pipeline import preprocessor as pp
+from data_pipeline._imaging_utils import breast_mask, to_grayscale
 
 
 def pick_case(manifest_path: Path, case: str | None) -> pd.Series:
@@ -46,9 +47,9 @@ def pick_case(manifest_path: Path, case: str | None) -> pd.Series:
 
 def build_stages(path: str):
     raw = pp.load_image(path)
-    gray = pp._to_grayscale(raw)
+    gray = to_grayscale(raw)
     clahe = pp._apply_clahe(gray)
-    mask = pp._breast_mask(clahe)
+    mask = breast_mask(clahe)
     masked = cv2.bitwise_and(clahe, clahe, mask=mask)
     no_pec = pp._remove_pectoral(masked, mask)
     oriented = pp._normalize_orientation(no_pec, mask)
