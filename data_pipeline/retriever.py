@@ -6,6 +6,7 @@ validated and transformed without downloading images from GCS yet.
 
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,8 @@ from urllib.parse import urlparse
 import pandas as pd
 import yaml
 
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_IMAGE_DOWNLOAD_WORKERS = 8
 
@@ -312,16 +315,16 @@ class ImageDownloadResult:
     case_folder: str
     local_path: Path | None
     gcs_object: str | None
-    status: str  # 'downloaded' | 'cached' | 'missing' | 'multiple' | 'error'
+    status: str  # 'downloaded' | 'cached' | 'missing' | 'error'
     detail: str = ""
     image_id: str = ""
 
 
-def _list_pngs_in_case_folder(client, bucket_name: str, prefix: str) -> list[str]:
-    """Return the .png blob object names under a case-folder prefix."""
+def _list_pngs_in_case_folder(client, bucket_name: str, prefix: str) -> list[tuple[str, int]]:
+    """Return (object_name, size_bytes) for each .png blob under a case-folder prefix."""
     bucket = client.bucket(bucket_name)
     blobs = client.list_blobs(bucket, prefix=prefix)
-    return [b.name for b in blobs if b.name.lower().endswith(".png")]
+    return [(b.name, b.size or 0) for b in blobs if b.name.lower().endswith(".png")]
 
 
 def _download_one_image(
@@ -360,16 +363,18 @@ def _download_one_image(
             status="missing",
             detail=f"no .png blobs under {prefix}",
         )
-    if len(png_objects) > 1:
-        return ImageDownloadResult(
-            case_folder=case_folder,
-            local_path=None,
-            gcs_object=None,
-            status="multiple",
-            detail=f"{len(png_objects)} .png blobs under {prefix}",
-        )
 
-    object_name = png_objects[0]
+    # CBIS case folders are expected to hold one PNG, but some contain multiple
+    # views (or an ROI crop alongside the full mammogram). Rather than drop the
+    # case, pick the largest file — the full mammogram dominates an ROI crop —
+    # and warn so the choice is auditable in the download report.
+    selection_detail = ""
+    if len(png_objects) > 1:
+        png_objects = sorted(png_objects, key=lambda p: p[1], reverse=True)
+        selection_detail = f"selected largest of {len(png_objects)} .png blobs under {prefix}"
+        logger.warning("%s: %s", case_folder, selection_detail)
+
+    object_name = png_objects[0][0]
     bucket = client.bucket(bucket_name)
     try:
         bucket.blob(object_name).download_to_filename(str(local_path))
@@ -387,6 +392,7 @@ def _download_one_image(
         local_path=local_path,
         gcs_object=object_name,
         status="downloaded",
+        detail=selection_detail,
     )
 
 
