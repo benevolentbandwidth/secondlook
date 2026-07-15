@@ -89,9 +89,100 @@ That pulls about 100 cases (a few hundred MB) sampled across the train and test 
 
 ### Running on Vertex AI instead of your laptop
 
-Training the full model on a laptop is fine for smoke tests but slow for real runs. The bucket lives in GCP, so the natural place to train is a Vertex AI Workbench notebook or a custom training job in the same region. Intra-region reads from GCS are free and fast, and you avoid storing the dataset locally. Point `--cache-dir` at a local path on the VM (or skip caching entirely and stream from `gs://` URIs through `tf.io.gfile`) and the rest of the pipeline works the same.
+Training the full model on a laptop is slow. The bucket is regional in
+**`us-east1`**, so run a Vertex AI **Custom Job in that region** — intra-region
+reads are free and fast. `scripts/train_vertex.py` is the entrypoint: it runs
+the whole loop on the VM (build → train → upload the best checkpoint to
+`gs://` → optional eval), downloading images to the VM's local disk via the
+same `build_dataset --use-gcs` path used above.
 
-This will be implemented soon.
+**Fixed facts (verified 2026-07-10):**
+
+| Thing | Value |
+|---|---|
+| Project | `b2-second-look` (number `712337668384`) |
+| Region | `us-east1` (matches the `gs://b2-foundation` bucket) |
+| Training SA | `vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com` (read on the bucket; write scoped to `.../checkpoints/`) |
+| Checkpoints prefix | `gs://b2-foundation/second-look/checkpoints/` (only SA-writable location) |
+| Container (CPU smoke) | `us-docker.pkg.dev/vertex-ai/training/tf-cpu.2-17.py310:latest` |
+| Container (GPU scale-up) | `us-docker.pkg.dev/vertex-ai/training/tf-gpu.2-17.py310:latest` |
+
+On Vertex the attached SA is the credential — **no key file, and do NOT set
+`GOOGLE_APPLICATION_CREDENTIALS`** (that quirk is local-Windows-only).
+
+**Prerequisite — grant the submitting user `actAs` on the SA (once, by a
+`b2-second-look` admin).** Running a job *as* the SA needs this; the submitting
+user cannot self-grant:
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding \
+  vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com \
+  --member="user:hdawy@bu.edu" \
+  --role="roles/iam.serviceAccountUser" \
+  --project=b2-second-look
+```
+
+Without it, `custom-jobs create` fails with *"You do not have permission to act
+as service_account …"*.
+
+**1. Package the code as a source distribution and stage it to GCS** (no Docker
+build — a prebuilt TF container runs the package). Re-run whenever code changes:
+
+```bash
+cd github/secondlook
+python setup.py sdist --dist-dir dist
+gsutil cp dist/second_look_training-0.1.0.tar.gz \
+  gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz
+```
+
+**2. Smoke run (CPU, ~40 CBIS cases, 1 epoch)** — validates the whole path and
+confirms a checkpoint lands in GCS. CPU sidesteps the GPU-quota gate on a fresh
+project:
+
+```bash
+gcloud ai custom-jobs create \
+  --project=b2-second-look --region=us-east1 \
+  --display-name="second-look-smoke-$(date +%Y%m%d-%H%M%S)" \
+  --service-account=vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com \
+  --python-package-uris=gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz \
+  --worker-pool-spec=machine-type=e2-standard-4,replica-count=1,executor-image-uri=us-docker.pkg.dev/vertex-ai/training/tf-cpu.2-17.py310:latest,python-module=scripts.train_vertex \
+  --args=--datasets=cbis,--limit=40,--max-epochs=1,--checkpoint-dir=gs://b2-foundation/second-look/checkpoints/smoke-vertex,--run-eval
+
+gsutil ls -l gs://b2-foundation/second-look/checkpoints/smoke-vertex/   # confirm best.keras
+```
+
+> **PowerShell caveat:** unquoted commas are an array operator and will corrupt
+> `--worker-pool-spec` / `--args`. Put those values in variables and quote them
+> (`"--args=$jobArgs"`), or run from Git Bash / Cloud Shell as written.
+
+**3. Scale-up run (GPU, full CBIS)** — drop `--limit`, raise epochs, use a GPU
+pool (request `us-east1` GPU quota first if the project has none). Add
+`--boot-disk-size=200GB` for the full ~10–70 GB image pull, and
+`--no-freeze-backbone` in `--args` to fine-tune (biggest accuracy lever):
+
+```bash
+gcloud ai custom-jobs create \
+  --project=b2-second-look --region=us-east1 \
+  --display-name="second-look-baseline-$(date +%Y%m%d-%H%M%S)" \
+  --service-account=vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com \
+  --python-package-uris=gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz \
+  --worker-pool-spec=machine-type=n1-standard-8,accelerator-type=NVIDIA_TESLA_T4,accelerator-count=1,replica-count=1,boot-disk-size=200GB,executor-image-uri=us-docker.pkg.dev/vertex-ai/training/tf-gpu.2-17.py310:latest,python-module=scripts.train_vertex \
+  --args=--datasets=cbis,--max-epochs=12,--checkpoint-dir=gs://b2-foundation/second-look/checkpoints/baseline,--run-eval
+```
+
+**4. Monitor:**
+
+```bash
+gcloud ai custom-jobs list --project=b2-second-look --region=us-east1 --limit=5
+gcloud ai custom-jobs stream-logs <JOB_ID> --project=b2-second-look --region=us-east1
+```
+
+**Evaluation protocol.** `modeling/evaluate.py` reports, in order, **AUROC**
+(threshold-independent — the honest metric on ~87%-positive CBIS), the
+**operating point** that maximizes specificity subject to WORTH sensitivity
+≥ 0.80, and **calibration** (Brier + ECE, plus a reliability diagram when
+`output_dir` is set). It still enforces the 0.80 sensitivity floor and prints
+the confusion matrix at a reference threshold.
 
 ## Getting the RSNA dataset
 
