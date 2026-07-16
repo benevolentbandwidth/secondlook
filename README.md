@@ -135,9 +135,12 @@ gsutil cp dist/second_look_training-0.1.0.tar.gz \
   gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz
 ```
 
-**2. Smoke run (CPU, ~40 CBIS cases, 1 epoch)** — validates the whole path and
+**2. Smoke run (CPU, ~200 CBIS cases, 1 epoch)** — validates the whole path and
 confirms a checkpoint lands in GCS. CPU sidesteps the GPU-quota gate on a fresh
-project:
+project. Use `--limit 200`, not a smaller number: CBIS is ~87% positive, so a
+too-small sample can leave a split with fewer than 3 negatives and the splitter
+(correctly) refuses to stratify. Expect a poor 1-epoch model — the smoke test
+validates the pipeline, not model quality.
 
 ```bash
 gcloud ai custom-jobs create \
@@ -146,7 +149,7 @@ gcloud ai custom-jobs create \
   --service-account=vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com \
   --python-package-uris=gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz \
   --worker-pool-spec=machine-type=e2-standard-4,replica-count=1,executor-image-uri=us-docker.pkg.dev/vertex-ai/training/tf-cpu.2-17.py310:latest,python-module=scripts.train_vertex \
-  --args=--datasets=cbis,--limit=40,--max-epochs=1,--checkpoint-dir=gs://b2-foundation/second-look/checkpoints/smoke-vertex,--run-eval
+  --args=--datasets=cbis,--limit=200,--max-epochs=1,--checkpoint-dir=gs://b2-foundation/second-look/checkpoints/smoke-vertex,--run-eval
 
 gsutil ls -l gs://b2-foundation/second-look/checkpoints/smoke-vertex/   # confirm best.keras
 ```

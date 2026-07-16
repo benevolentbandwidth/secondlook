@@ -42,19 +42,17 @@ Typical usage (run as a module so the sibling packages import cleanly):
 
 from __future__ import annotations
 
+# NOTE: keep module-level imports to the stdlib only. Heavy imports
+# (tensorflow, pandas, config) are done lazily inside run() so that an
+# import-time failure is caught by main()'s handler and written to GCS,
+# instead of crashing the module before any diagnostics can run.
 import argparse
-import subprocess
 import sys
 from pathlib import Path
-
-import pandas as pd
-import tensorflow as tf
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-
-from config.constants import INPUT_SIZE  # noqa: E402
 
 # The training manifest's own column names (see data_pipeline.manifest).
 # canonical_label is already the binary 0/1 int; image_local_path is an
@@ -102,7 +100,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_dataset(args: argparse.Namespace, work_dir: Path) -> Path:
-    """Run scripts.build_dataset --use-gcs; return the training manifest path."""
+    """Build the training manifest by calling scripts.build_dataset IN-PROCESS.
+
+    We call build_dataset.main() directly (with a patched argv) rather than
+    shelling out. A subprocess swallows the real error: its traceback goes to
+    the child's stderr and can be lost if the pipe closes on a hard exit. Run
+    in-process, any exception propagates straight into main()'s handler and is
+    written verbatim to the GCS run log.
+    """
     manifest_path = work_dir / "manifest.csv"
     if args.skip_build:
         if not manifest_path.exists():
@@ -112,8 +117,8 @@ def build_dataset(args: argparse.Namespace, work_dir: Path) -> Path:
         print(f"[build] skipped; reusing {manifest_path}")
         return manifest_path
 
-    cmd = [
-        sys.executable, "-m", "scripts.build_dataset",
+    argv = [
+        "build_dataset",
         "--use-gcs",
         "--datasets", *args.datasets,
         "--cache-dir", str(work_dir / "cache"),
@@ -122,18 +127,25 @@ def build_dataset(args: argparse.Namespace, work_dir: Path) -> Path:
         "--max-workers", str(args.max_workers),
     ]
     if args.limit is not None:
-        cmd += ["--limit", str(args.limit)]
+        argv += ["--limit", str(args.limit)]
 
-    print(f"[build] running: {' '.join(cmd)}")
-    # Run from REPO_ROOT so `python -m scripts.build_dataset` resolves.
-    subprocess.run(cmd, check=True, cwd=str(REPO_ROOT))
+    print(f"[build] in-process argv: {argv}")
+    import scripts.build_dataset as build_module
+    saved_argv = sys.argv
+    sys.argv = argv
+    try:
+        build_module.main()
+    finally:
+        sys.argv = saved_argv
+
     if not manifest_path.exists():
         raise FileNotFoundError(f"build did not produce {manifest_path}")
     return manifest_path
 
 
-def load_splits(manifest_path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_splits(manifest_path: Path):
     """Load the manifest and return (train, val, test) with usable images only."""
+    import pandas as pd
     df = pd.read_csv(manifest_path)
 
     # Keep only rows whose image actually downloaded and exists on disk.
@@ -164,21 +176,90 @@ def load_splits(manifest_path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.Dat
     return train_df, val_df, test_df
 
 
+def _parse_gs_uri(uri: str) -> tuple[str, str]:
+    """gs://bucket/path/to/obj -> ('bucket', 'path/to/obj')."""
+    rest = uri[len("gs://"):]
+    bucket, _, blob = rest.partition("/")
+    return bucket, blob
+
+
+def _gcs_upload_file(local_path: Path, gs_uri: str) -> None:
+    """Upload a local file to a gs:// URI via the storage client (SA auth).
+
+    We deliberately use google-cloud-storage rather than tf.io.gfile: the
+    retriever already authenticates GCS reads this way with the attached
+    service account, whereas tf.io.gfile uses a separate credential path that
+    is not reliable on Vertex.
+    """
+    from google.cloud import storage
+    bucket_name, blob_name = _parse_gs_uri(gs_uri)
+    storage.Client().bucket(bucket_name).blob(blob_name).upload_from_filename(
+        str(local_path)
+    )
+
+
 def upload_checkpoint(local_ckpt_dir: Path, gcs_dir: str) -> str | None:
-    """Copy the best checkpoint from the local dir to the gs:// prefix."""
+    """Copy the best checkpoint from the local dir to the checkpoint prefix."""
     local_best = local_ckpt_dir / "best.keras"
     if not local_best.exists():
         print(f"[upload] no checkpoint at {local_best}; nothing to upload")
         return None
-    gcs_best = gcs_dir.rstrip("/") + "/best.keras"
-    tf.io.gfile.makedirs(gcs_dir)
-    tf.io.gfile.copy(str(local_best), gcs_best, overwrite=True)
-    print(f"[upload] checkpoint -> {gcs_best}")
-    return gcs_best
+    dest = gcs_dir.rstrip("/") + "/best.keras"
+    if dest.startswith("gs://"):
+        _gcs_upload_file(local_best, dest)
+    else:  # local dir (used by local/dry runs)
+        import shutil
+        Path(gcs_dir).mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(local_best, dest)
+    print(f"[upload] checkpoint -> {dest}")
+    return dest
 
 
-def main() -> None:
-    args = parse_args()
+class _Tee:
+    """Duplicate writes to several streams (real stdout + an in-memory buffer)."""
+
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data):
+        for s in self._streams:
+            s.write(data)
+        return len(data)
+
+    def flush(self):
+        for s in self._streams:
+            s.flush()
+
+
+def _write_debug_log(checkpoint_dir: str, text: str) -> None:
+    """Write a captured run log to gs://<checkpoint-dir>/_debug/ (best effort).
+
+    The training service account can write under the checkpoints prefix, so this
+    makes failures diagnosable from GCS even without Cloud Logging access.
+    """
+    import datetime
+    try:
+        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+        dest = checkpoint_dir.rstrip("/") + f"/_debug/run-{ts}.log"
+        if dest.startswith("gs://"):
+            from google.cloud import storage
+            bucket_name, blob_name = _parse_gs_uri(dest)
+            storage.Client().bucket(bucket_name).blob(blob_name).upload_from_string(text)
+        else:
+            p = Path(dest)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text, encoding="utf-8")
+        print(f"[debug] run log -> {dest}")
+    except Exception as exc:  # never let logging mask the real error
+        print(f"[debug] could not write run log: {exc}")
+
+
+def run(args: argparse.Namespace) -> None:
+    # Heavy imports happen here (not at module top) so any import failure is
+    # caught by main()'s handler and logged to GCS.
+    import tensorflow as tf
+    from config.constants import INPUT_SIZE
+
     work_dir = Path(args.work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
     local_ckpt_dir = work_dir / "checkpoints"
@@ -217,6 +298,37 @@ def main() -> None:
         )
 
     print("[done] training entrypoint complete.")
+
+
+def main() -> None:
+    """Parse args and run, capturing all output to a GCS debug log."""
+    import faulthandler
+    import io
+    import traceback
+
+    faulthandler.enable()  # dump a C-level stack on segfault/abort
+
+    args = parse_args()
+
+    # Write a marker immediately so we can distinguish "module never loaded /
+    # GCS write denied" (no marker) from "started but crashed hard" (marker but
+    # no run log). Uses the storage client, the same auth path as the reads.
+    _write_debug_log(args.checkpoint_dir, "STARTED: entrypoint reached main()\n")
+
+    buffer = io.StringIO()
+    real_stdout, real_stderr = sys.stdout, sys.stderr
+    sys.stdout = _Tee(real_stdout, buffer)
+    sys.stderr = _Tee(real_stderr, buffer)
+    try:
+        run(args)
+    except Exception:
+        buffer.write("\n" + traceback.format_exc())
+        sys.stdout, sys.stderr = real_stdout, real_stderr
+        _write_debug_log(args.checkpoint_dir, buffer.getvalue())
+        raise
+    else:
+        sys.stdout, sys.stderr = real_stdout, real_stderr
+        _write_debug_log(args.checkpoint_dir, buffer.getvalue())
 
 
 if __name__ == "__main__":

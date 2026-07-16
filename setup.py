@@ -30,7 +30,11 @@ setup(
     package_data={"config": ["*.yaml"]},
     include_package_data=True,
     install_requires=[
-        "numpy>=1.24",
+        # Pin below NumPy 2: the prebuilt TF training container ships a
+        # TensorFlow compiled against NumPy 1.x, and letting pip upgrade to
+        # NumPy 2.x breaks `import tensorflow` with an ABI error
+        # (_pywrap_checkpoint_reader SystemError).
+        "numpy>=1.24,<2",
         "pandas>=2.0",
         "scikit-learn>=1.3",
         "opencv-python-headless>=4.8",
