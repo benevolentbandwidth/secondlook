@@ -1,0 +1,766 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		890B7D4469D90428D7086C85 /* Pods_SecondLook_SecondLookUITests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 90447D418A3749FD7E877009 /* Pods_SecondLook_SecondLookUITests.framework */; };
+		9917A153CF02EF833D4899FB /* Pods_SecondLook.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9103CBCCF7733BAB13EA50F8 /* Pods_SecondLook.framework */; };
+		B71EC48A300A549600DD9F9F /* OpenCV in Frameworks */ = {isa = PBXBuildFile; productRef = B71EC489300A549600DD9F9F /* OpenCV */; };
+		B9DAE4224C80C7358068459B /* Pods_SecondLookTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DC514CF9EF9F3A2A73FC3374 /* Pods_SecondLookTests.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B7B9500B2FFD4C91006444C2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B7B94FF52FFD4C8F006444C2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B7B94FFC2FFD4C8F006444C2;
+			remoteInfo = SecondLook;
+		};
+		B7B950152FFD4C91006444C2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B7B94FF52FFD4C8F006444C2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B7B94FFC2FFD4C8F006444C2;
+			remoteInfo = SecondLook;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		192F974CB1B7F196C16A8258 /* Pods-SecondLook-SecondLookUITests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SecondLook-SecondLookUITests.release.xcconfig"; path = "Target Support Files/Pods-SecondLook-SecondLookUITests/Pods-SecondLook-SecondLookUITests.release.xcconfig"; sourceTree = "<group>"; };
+		3F999E52F45A9B16EF4FE007 /* Pods-SecondLookTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SecondLookTests.debug.xcconfig"; path = "Target Support Files/Pods-SecondLookTests/Pods-SecondLookTests.debug.xcconfig"; sourceTree = "<group>"; };
+		500E48A8D080BD8E8E5649F6 /* Pods-SecondLookTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SecondLookTests.release.xcconfig"; path = "Target Support Files/Pods-SecondLookTests/Pods-SecondLookTests.release.xcconfig"; sourceTree = "<group>"; };
+		90447D418A3749FD7E877009 /* Pods_SecondLook_SecondLookUITests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_SecondLook_SecondLookUITests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		9103CBCCF7733BAB13EA50F8 /* Pods_SecondLook.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_SecondLook.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC56375F11D075C12B9C1E1D /* Pods-SecondLook.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SecondLook.release.xcconfig"; path = "Target Support Files/Pods-SecondLook/Pods-SecondLook.release.xcconfig"; sourceTree = "<group>"; };
+		B71EC484300A4EE900DD9F9F /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = opencv2.framework; path = ../../../../Downloads/opencv2.framework; sourceTree = "<group>"; };
+		B7B94FFD2FFD4C8F006444C2 /* SecondLook.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SecondLook.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B7B9500A2FFD4C91006444C2 /* SecondLookTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SecondLookTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B7B950142FFD4C91006444C2 /* SecondLookUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SecondLookUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D9B6BEA20EF02D6334824B1E /* Pods-SecondLook.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SecondLook.debug.xcconfig"; path = "Target Support Files/Pods-SecondLook/Pods-SecondLook.debug.xcconfig"; sourceTree = "<group>"; };
+		DBC63CA414CCF506BE9A827E /* Pods-SecondLook-SecondLookUITests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SecondLook-SecondLookUITests.debug.xcconfig"; path = "Target Support Files/Pods-SecondLook-SecondLookUITests/Pods-SecondLook-SecondLookUITests.debug.xcconfig"; sourceTree = "<group>"; };
+		DC514CF9EF9F3A2A73FC3374 /* Pods_SecondLookTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_SecondLookTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		B7B94FFF2FFD4C8F006444C2 /* SecondLook */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SecondLook;
+			sourceTree = "<group>";
+		};
+		B7B9500D2FFD4C91006444C2 /* SecondLookTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SecondLookTests;
+			sourceTree = "<group>";
+		};
+		B7B950172FFD4C91006444C2 /* SecondLookUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SecondLookUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B7B94FFA2FFD4C8F006444C2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9917A153CF02EF833D4899FB /* Pods_SecondLook.framework in Frameworks */,
+				B71EC48A300A549600DD9F9F /* OpenCV in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7B950072FFD4C91006444C2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9DAE4224C80C7358068459B /* Pods_SecondLookTests.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7B950112FFD4C91006444C2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				890B7D4469D90428D7086C85 /* Pods_SecondLook_SecondLookUITests.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		7F1A0A5219A675B8AA36083E /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				D9B6BEA20EF02D6334824B1E /* Pods-SecondLook.debug.xcconfig */,
+				AC56375F11D075C12B9C1E1D /* Pods-SecondLook.release.xcconfig */,
+				DBC63CA414CCF506BE9A827E /* Pods-SecondLook-SecondLookUITests.debug.xcconfig */,
+				192F974CB1B7F196C16A8258 /* Pods-SecondLook-SecondLookUITests.release.xcconfig */,
+				3F999E52F45A9B16EF4FE007 /* Pods-SecondLookTests.debug.xcconfig */,
+				500E48A8D080BD8E8E5649F6 /* Pods-SecondLookTests.release.xcconfig */,
+			);
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		B7B94FF42FFD4C8F006444C2 = {
+			isa = PBXGroup;
+			children = (
+				B7B94FFF2FFD4C8F006444C2 /* SecondLook */,
+				B7B9500D2FFD4C91006444C2 /* SecondLookTests */,
+				B7B950172FFD4C91006444C2 /* SecondLookUITests */,
+				B7B9502F2FFE71E5006444C2 /* Frameworks */,
+				B7B94FFE2FFD4C8F006444C2 /* Products */,
+				7F1A0A5219A675B8AA36083E /* Pods */,
+			);
+			sourceTree = "<group>";
+		};
+		B7B94FFE2FFD4C8F006444C2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B7B94FFD2FFD4C8F006444C2 /* SecondLook.app */,
+				B7B9500A2FFD4C91006444C2 /* SecondLookTests.xctest */,
+				B7B950142FFD4C91006444C2 /* SecondLookUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B7B9502F2FFE71E5006444C2 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				B71EC484300A4EE900DD9F9F /* opencv2.framework */,
+				9103CBCCF7733BAB13EA50F8 /* Pods_SecondLook.framework */,
+				90447D418A3749FD7E877009 /* Pods_SecondLook_SecondLookUITests.framework */,
+				DC514CF9EF9F3A2A73FC3374 /* Pods_SecondLookTests.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B7B94FFC2FFD4C8F006444C2 /* SecondLook */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7B9501E2FFD4C91006444C2 /* Build configuration list for PBXNativeTarget "SecondLook" */;
+			buildPhases = (
+				9556CFF81976AE405B9AA866 /* [CP] Check Pods Manifest.lock */,
+				B7B94FF92FFD4C8F006444C2 /* Sources */,
+				B7B94FFA2FFD4C8F006444C2 /* Frameworks */,
+				B7B94FFB2FFD4C8F006444C2 /* Resources */,
+				D3D4CD87615DAA3DD6A6BEC5 /* [CP] Copy Pods Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B7B94FFF2FFD4C8F006444C2 /* SecondLook */,
+			);
+			name = SecondLook;
+			productName = SecondLook;
+			productReference = B7B94FFD2FFD4C8F006444C2 /* SecondLook.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B7B950092FFD4C91006444C2 /* SecondLookTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7B950212FFD4C91006444C2 /* Build configuration list for PBXNativeTarget "SecondLookTests" */;
+			buildPhases = (
+				ACB80CAC8CA67A107989EEAA /* [CP] Check Pods Manifest.lock */,
+				B7B950062FFD4C91006444C2 /* Sources */,
+				B7B950072FFD4C91006444C2 /* Frameworks */,
+				B7B950082FFD4C91006444C2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B7B9500C2FFD4C91006444C2 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B7B9500D2FFD4C91006444C2 /* SecondLookTests */,
+			);
+			name = SecondLookTests;
+			productName = SecondLookTests;
+			productReference = B7B9500A2FFD4C91006444C2 /* SecondLookTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		B7B950132FFD4C91006444C2 /* SecondLookUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7B950242FFD4C91006444C2 /* Build configuration list for PBXNativeTarget "SecondLookUITests" */;
+			buildPhases = (
+				25C178CDBDE5D13AF740AD93 /* [CP] Check Pods Manifest.lock */,
+				B7B950102FFD4C91006444C2 /* Sources */,
+				B7B950112FFD4C91006444C2 /* Frameworks */,
+				B7B950122FFD4C91006444C2 /* Resources */,
+				B396593FD309FCE084CDA8EB /* [CP] Copy Pods Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B7B950162FFD4C91006444C2 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B7B950172FFD4C91006444C2 /* SecondLookUITests */,
+			);
+			name = SecondLookUITests;
+			productName = SecondLookUITests;
+			productReference = B7B950142FFD4C91006444C2 /* SecondLookUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B7B94FF52FFD4C8F006444C2 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					B7B94FFC2FFD4C8F006444C2 = {
+						CreatedOnToolsVersion = 26.6;
+						LastSwiftMigration = 2660;
+					};
+					B7B950092FFD4C91006444C2 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = B7B94FFC2FFD4C8F006444C2;
+					};
+					B7B950132FFD4C91006444C2 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = B7B94FFC2FFD4C8F006444C2;
+					};
+				};
+			};
+			buildConfigurationList = B7B94FF82FFD4C8F006444C2 /* Build configuration list for PBXProject "SecondLook" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = B7B94FF42FFD4C8F006444C2;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B71EC488300A549600DD9F9F /* XCRemoteSwiftPackageReference "opencv-spm" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B7B94FFE2FFD4C8F006444C2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B7B94FFC2FFD4C8F006444C2 /* SecondLook */,
+				B7B950092FFD4C91006444C2 /* SecondLookTests */,
+				B7B950132FFD4C91006444C2 /* SecondLookUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B7B94FFB2FFD4C8F006444C2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7B950082FFD4C91006444C2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7B950122FFD4C91006444C2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		25C178CDBDE5D13AF740AD93 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-SecondLook-SecondLookUITests-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		9556CFF81976AE405B9AA866 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-SecondLook-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		ACB80CAC8CA67A107989EEAA /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-SecondLookTests-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		B396593FD309FCE084CDA8EB /* [CP] Copy Pods Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-SecondLook-SecondLookUITests/Pods-SecondLook-SecondLookUITests-resources-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			inputPaths = (
+			);
+			name = "[CP] Copy Pods Resources";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-SecondLook-SecondLookUITests/Pods-SecondLook-SecondLookUITests-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-SecondLook-SecondLookUITests/Pods-SecondLook-SecondLookUITests-resources.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		D3D4CD87615DAA3DD6A6BEC5 /* [CP] Copy Pods Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-SecondLook/Pods-SecondLook-resources-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			inputPaths = (
+			);
+			name = "[CP] Copy Pods Resources";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-SecondLook/Pods-SecondLook-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-SecondLook/Pods-SecondLook-resources.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B7B94FF92FFD4C8F006444C2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7B950062FFD4C91006444C2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7B950102FFD4C91006444C2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B7B9500C2FFD4C91006444C2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B7B94FFC2FFD4C8F006444C2 /* SecondLook */;
+			targetProxy = B7B9500B2FFD4C91006444C2 /* PBXContainerItemProxy */;
+		};
+		B7B950162FFD4C91006444C2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B7B94FFC2FFD4C8F006444C2 /* SecondLook */;
+			targetProxy = B7B950152FFD4C91006444C2 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		B7B9501C2FFD4C91006444C2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		B7B9501D2FFD4C91006444C2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		B7B9501F2FFD4C91006444C2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = D9B6BEA20EF02D6334824B1E /* Pods-SecondLook.debug.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = hexogen.SecondLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "SecondLook/SecondLook-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B7B950202FFD4C91006444C2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AC56375F11D075C12B9C1E1D /* Pods-SecondLook.release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = hexogen.SecondLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "SecondLook/SecondLook-Bridging-Header.h";
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		B7B950222FFD4C91006444C2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3F999E52F45A9B16EF4FE007 /* Pods-SecondLookTests.debug.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = hexogen.SecondLookTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SecondLook.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SecondLook";
+			};
+			name = Debug;
+		};
+		B7B950232FFD4C91006444C2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 500E48A8D080BD8E8E5649F6 /* Pods-SecondLookTests.release.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = hexogen.SecondLookTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SecondLook.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SecondLook";
+			};
+			name = Release;
+		};
+		B7B950252FFD4C91006444C2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = DBC63CA414CCF506BE9A827E /* Pods-SecondLook-SecondLookUITests.debug.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = hexogen.SecondLookUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = SecondLook;
+			};
+			name = Debug;
+		};
+		B7B950262FFD4C91006444C2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 192F974CB1B7F196C16A8258 /* Pods-SecondLook-SecondLookUITests.release.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = hexogen.SecondLookUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = SecondLook;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B7B94FF82FFD4C8F006444C2 /* Build configuration list for PBXProject "SecondLook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7B9501C2FFD4C91006444C2 /* Debug */,
+				B7B9501D2FFD4C91006444C2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B7B9501E2FFD4C91006444C2 /* Build configuration list for PBXNativeTarget "SecondLook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7B9501F2FFD4C91006444C2 /* Debug */,
+				B7B950202FFD4C91006444C2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B7B950212FFD4C91006444C2 /* Build configuration list for PBXNativeTarget "SecondLookTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7B950222FFD4C91006444C2 /* Debug */,
+				B7B950232FFD4C91006444C2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B7B950242FFD4C91006444C2 /* Build configuration list for PBXNativeTarget "SecondLookUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7B950252FFD4C91006444C2 /* Debug */,
+				B7B950262FFD4C91006444C2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B71EC488300A549600DD9F9F /* XCRemoteSwiftPackageReference "opencv-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/yeatse/opencv-spm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B71EC489300A549600DD9F9F /* OpenCV */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B71EC488300A549600DD9F9F /* XCRemoteSwiftPackageReference "opencv-spm" */;
+			productName = OpenCV;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = B7B94FF52FFD4C8F006444C2 /* Project object */;
+}
