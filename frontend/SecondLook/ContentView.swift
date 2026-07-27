@@ -125,7 +125,7 @@ struct DisclaimerGateView: View {
 
 struct CaptureView: View {
     let onImageSelected: (UIImage) -> Void
-    @State private var showingPicker = false
+    @State private var pickerSource: UIImagePickerController.SourceType?
 
     var body: some View {
         VStack(spacing: 20) {
@@ -150,7 +150,7 @@ struct CaptureView: View {
                 .padding(.horizontal, 32)
 
             Button {
-                showingPicker = true
+                pickerSource = .photoLibrary
             } label: {
                 Label("Choose Image", systemImage: "photo.on.rectangle")
                     .frame(maxWidth: .infinity)
@@ -159,10 +159,21 @@ struct CaptureView: View {
             .buttonStyle(.borderedProminent)
             .padding(.horizontal, 40)
 
+            Button {
+                pickerSource = .camera
+            } label: {
+                Label("Take Photo", systemImage: "camera.fill")
+                    .frame(maxWidth: .infinity)
+                    .padding(6)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal, 40)
+            .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+
             Spacer()
         }
-        .sheet(isPresented: $showingPicker) {
-            ImagePicker { image in
+        .fullScreenCover(item: $pickerSource) { source in
+            ImagePicker(sourceType: source) { image in
                 onImageSelected(image)
             }
         }
@@ -333,11 +344,13 @@ struct ResultsView: View {
 // MARK: - Image Picker (UIKit bridge)
 
 struct ImagePicker: UIViewControllerRepresentable {
+    let sourceType: UIImagePickerController.SourceType
     let onImagePicked: (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
+        picker.sourceType = sourceType
         picker.delegate = context.coordinator
         return picker
     }
@@ -363,6 +376,10 @@ struct ImagePicker: UIViewControllerRepresentable {
             parent.dismiss()
         }
     }
+}
+
+extension UIImagePickerController.SourceType: @retroactive Identifiable {
+    public var id: Int { rawValue }
 }
 
 #Preview {
