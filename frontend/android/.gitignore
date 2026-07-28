@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# SecondLook — Android / Gradle .gitignore
+# NOTE: the Gradle wrapper (gradlew, gradlew.bat, gradle/wrapper/*) IS
+# committed, so a clone builds with the right Gradle version, and so is the
+# bundled second_look.tflite model the app ships.
+# ---------------------------------------------------------------------------
+
+# Build output
+build/
+/captures/
+.cxx/
+.externalNativeBuild/
+
+# Gradle / IDE local state
+.gradle/
+.kotlin/
+.idea/
+*.iml
+
+# Machine-specific: SDK path, and any chaquopyBuildPython override
+local.properties
+
+# Python bytecode from running the vendored pipeline outside Android
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store

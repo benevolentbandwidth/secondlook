@@ -1,0 +1,4 @@
+/build
+# Local bytecode from running the vendored pipeline outside Android
+__pycache__/
+*.py[cod]

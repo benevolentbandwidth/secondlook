@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- iOS .systemBackground — the top of the app's background gradient, so
+         the window behind the first frame matches what Compose draws. -->
+    <color name="window_background">#FFFFFF</color>
+</resources>
