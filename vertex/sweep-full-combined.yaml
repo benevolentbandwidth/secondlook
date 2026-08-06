@@ -1,0 +1,63 @@
+# Vertex AI CustomJob config for the FULL combined-dataset FINALIST run.
+# Trains the 2 finalists (frozen_lr1e-3 vs twophase_p2lr1e-5) on all of
+# CBIS+RSNA+VinDr — the decisive comparison the subset sweeps set up.
+#
+# GPU-ACTIVE. Requires quota first: "Custom model training NVIDIA T4 GPUs" >= 1
+# in us-east1 (fresh projects start at 0). Request it in the Cloud console
+# (IAM & Admin -> Quotas), then submit. Without the quota this job fails fast
+# with a quota error (harmless). A CPU fallback is provided in comments below.
+#
+# Why a --config file (not --worker-pool-spec): the full pull is CBIS(~10GB) +
+# RSNA(~120GB) + VinDr(~48GB) ~= 178 GB to local disk, past the default 100 GB
+# boot disk. Only a config YAML's diskSpec can enlarge it. 250 GB adds headroom.
+#
+# SUBMIT (from github/secondlook, after re-staging the sdist if code changed):
+#   gcloud ai custom-jobs create \
+#     --project=b2-second-look --region=us-east1 \
+#     --display-name="second-look-sweep-full-$(date +%Y%m%d-%H%M%S)" \
+#     --service-account=vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com \
+#     --config=vertex/sweep-full-combined.yaml
+#
+# The finalists live in scripts/sweep_vertex.py (SWEEP_CONFIGS). Re-stage the
+# sdist after ANY edit there:
+#   python setup.py sdist --dist-dir dist
+#   gsutil cp dist/second_look_training-0.1.0.tar.gz \
+#     gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz
+#
+# HEADS-UP ON RUNTIME: the GPU accelerates backprop, but the per-image CLAHE
+# preprocessing (tf.py_function, CPU-bound, re-run each epoch) is the real
+# bottleneck at ~55k images -> still hours/epoch. Adding tf.data .cache() to
+# modeling/train._build_dataset is the single biggest speedup for this run
+# (preprocess once, reuse each epoch) and is the recommended next enabler.
+
+workerPoolSpecs:
+  - machineSpec:
+      machineType: n1-standard-16
+      acceleratorType: NVIDIA_TESLA_T4
+      acceleratorCount: 1
+      # --- CPU fallback (works without GPU quota, but ~days at full scale) ---
+      # machineType: e2-standard-16   # and remove the two accelerator lines above
+    replicaCount: 1
+    diskSpec:
+      bootDiskType: pd-ssd
+      bootDiskSizeGb: 250
+    pythonPackageSpec:
+      executorImageUri: us-docker.pkg.dev/vertex-ai/training/tf-gpu.2-17.py310:latest
+      # CPU fallback container (use with the e2-standard-16 machine above):
+      # executorImageUri: us-docker.pkg.dev/vertex-ai/training/tf-cpu.2-17.py310:latest
+      packageUris:
+        - gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz
+      pythonModule: scripts.sweep_vertex
+      args:
+        - --datasets
+        - cbis
+        - rsna
+        - vindr
+        - --max-epochs
+        - "20"
+        - --batch-size
+        - "32"
+        - --max-workers
+        - "16"
+        - --checkpoint-dir
+        - gs://b2-foundation/second-look/checkpoints/sweep-full-01

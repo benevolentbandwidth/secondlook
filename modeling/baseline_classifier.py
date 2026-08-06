@@ -95,7 +95,10 @@ def build_baseline(
     return model
 
 
-def compute_class_weights(labels: list[int]) -> dict[int, float]:
+def compute_class_weights(
+    labels: list[int],
+    positive_multiplier: float | None = None,
+) -> dict[int, float]:
     """Compute class weights biased toward sensitivity on WORTH_SECOND_LOOK.
 
     Uses sklearn's balanced weighting as a base, then applies an additional
@@ -105,6 +108,11 @@ def compute_class_weights(labels: list[int]) -> dict[int, float]:
     Args:
         labels: List of binary labels (int 0 or 1) from the training set,
                 matching the Label enum's integer values.
+        positive_multiplier: Extra weight on the positive class on top of
+                balanced weighting. Defaults to WORTH_WEIGHT_MULTIPLIER (1.5).
+                Pass 1.0 to disable the extra bias — useful when fine-tuning an
+                unfrozen backbone, where the 1.5x bias can tip the model into a
+                degenerate "predict WORTH for everything" collapse.
 
     Returns:
         Dict mapping class index → weight, ready for Keras class_weight arg.
@@ -112,6 +120,10 @@ def compute_class_weights(labels: list[int]) -> dict[int, float]:
     Raises:
         ValueError: If labels contain values other than 0 or 1.
     """
+    multiplier = (
+        WORTH_WEIGHT_MULTIPLIER if positive_multiplier is None
+        else float(positive_multiplier)
+    )
     from sklearn.utils.class_weight import compute_class_weight
 
     unknown = set(labels) - {0, 1}
@@ -128,6 +140,6 @@ def compute_class_weights(labels: list[int]) -> dict[int, float]:
     )
 
     # Extra penalty for missing a WORTH case (false reassurance risk).
-    weights[POSITIVE_CLASS_INDEX] *= WORTH_WEIGHT_MULTIPLIER
+    weights[POSITIVE_CLASS_INDEX] *= multiplier
 
     return {i: float(w) for i, w in enumerate(weights)}

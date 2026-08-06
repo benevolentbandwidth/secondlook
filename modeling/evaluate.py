@@ -30,6 +30,7 @@ from sklearn.metrics import (
     brier_score_loss,
     classification_report,
     confusion_matrix,
+    f1_score,
     recall_score,
     roc_auc_score,
     roc_curve,
@@ -109,6 +110,18 @@ def evaluate_baseline(
     )
     worth_sensitivity = per_class_sensitivity[POSITIVE_CLASS_INDEX]
 
+    # Macro-F1: unweighted mean of per-class F1. Unlike accuracy (which a
+    # majority-class "vote everything positive" collapse can game — a trivial
+    # all-positive model scores CBIS accuracy ~0.91), macro-F1 tanks toward 0.5
+    # if the model ignores a class. Reported as a headline guard against that.
+    macro_f1 = float(
+        f1_score(true_labels, predicted_labels, labels=[0, 1],
+                 average="macro", zero_division=0)
+    )
+    per_class_f1 = f1_score(
+        true_labels, predicted_labels, labels=[0, 1], average=None, zero_division=0
+    )
+
     cm = confusion_matrix(true_labels, predicted_labels, labels=[0, 1])
     report = classification_report(
         true_labels,
@@ -130,7 +143,7 @@ def evaluate_baseline(
 
     _print_results(
         per_class_sensitivity, worth_sensitivity, cm, report, threshold,
-        auroc, operating_point, brier, ece, sensitivity_floor,
+        auroc, operating_point, brier, ece, sensitivity_floor, macro_f1,
     )
 
     passed = worth_sensitivity >= sensitivity_floor
@@ -155,6 +168,8 @@ def evaluate_baseline(
         "passed_safety_floor": bool(passed),
         "threshold": float(threshold),
         "auroc": auroc,
+        "macro_f1": macro_f1,
+        "per_class_f1": {LABEL_ORDER[i]: float(f) for i, f in enumerate(per_class_f1)},
         "operating_point": operating_point,
         "brier_score": brier,
         "ece": ece,
@@ -317,6 +332,7 @@ def _print_results(
     brier: float,
     ece: float,
     sensitivity_floor: float,
+    macro_f1: float,
 ) -> None:
     print("\n" + "=" * 60)
     print("SECOND LOOK - BASELINE EVALUATION")
@@ -325,6 +341,9 @@ def _print_results(
     # Threshold-independent discrimination first — the honest headline number.
     auroc_str = f"{auroc:.3f}" if auroc is not None else "N/A (single-class test set)"
     print(f"\nAUROC (threshold-independent): {auroc_str}")
+    # Imbalance-robust headline alongside AUROC. Guards against a majority-class
+    # collapse that accuracy would otherwise flatter.
+    print(f"Macro-F1 (imbalance-robust)  : {macro_f1:.3f}")
 
     print("\nDeployable operating point (max specificity at the sensitivity floor):")
     if operating_point is None:
