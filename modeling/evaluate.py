@@ -11,7 +11,10 @@
 #   2. Operating point at the sensitivity floor — instead of a hard-coded 0.5,
 #      pick the threshold that MAXIMIZES specificity subject to WORTH
 #      sensitivity >= WORTH_SENSITIVITY_FLOOR (0.80). This is the operating
-#      point we would actually deploy, per the failure-mode hierarchy.
+#      point we would actually deploy, per the failure-mode hierarchy. Reported
+#      with PRECISION and WORTH-F1 at that same point: on a ~94%-negative
+#      screening set, specificity flatters the false-alarm burden and precision
+#      does not (0.56 specificity at 6% prevalence = most flags are wrong).
 #   3. Calibration — Brier score, Expected Calibration Error, and an optional
 #      reliability diagram. Needed before confidence can drive the UX tiers.
 #
@@ -27,10 +30,10 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from sklearn.metrics import (
-    brier_score_loss,
     classification_report,
     confusion_matrix,
     f1_score,
+    precision_score,
     recall_score,
     roc_auc_score,
     roc_curve,
@@ -42,10 +45,8 @@ from modeling.baseline_classifier import (
     POSITIVE_CLASS_INDEX,
     WORTH_SENSITIVITY_FLOOR,
 )
+from modeling.calibrate import CALIBRATION_BINS, calibration_curve
 from modeling.train import _build_dataset
-
-# Number of bins for the reliability diagram / Expected Calibration Error.
-CALIBRATION_BINS = 10
 
 
 def evaluate_baseline(
@@ -91,8 +92,10 @@ def evaluate_baseline(
 
     Returns:
         Dict with keys: per_class_sensitivity, confusion_matrix, report_str,
-        worth_sensitivity, passed_safety_floor, threshold, auroc,
-        operating_point, brier_score, ece, reliability_diagram_path.
+        worth_sensitivity, passed_safety_floor, threshold, auroc, macro_f1,
+        per_class_f1, operating_point (threshold/sensitivity/specificity/
+        precision/worth_f1), brier_score, ece, reliability_diagram_path, and the
+        raw probabilities + true_labels arrays.
     """
     if isinstance(model, str):
         model = tf.keras.models.load_model(model)
@@ -136,7 +139,9 @@ def evaluate_baseline(
     operating_point = _operating_point_at_floor(
         true_labels, probabilities, sensitivity_floor
     )
-    brier, ece, curve = _calibration(true_labels, probabilities)
+    brier, ece, curve = calibration_curve(
+        true_labels, probabilities, n_bins=CALIBRATION_BINS
+    )
     diagram_path = None
     if output_dir is not None and curve is not None:
         diagram_path = _save_reliability_diagram(curve, brier, ece, output_dir)
@@ -174,6 +179,10 @@ def evaluate_baseline(
         "brier_score": brier,
         "ece": ece,
         "reliability_diagram_path": diagram_path,
+        # Raw arrays so downstream steps (temperature scaling, error analysis)
+        # do not have to re-run inference over the whole test split.
+        "probabilities": probabilities,
+        "true_labels": true_labels,
     }
 
 
@@ -187,7 +196,7 @@ def _both_classes_present(true_labels: np.ndarray) -> bool:
 
 
 def _compute_auroc(true_labels: np.ndarray, probabilities: np.ndarray) -> float | None:
-    """AUROC — the honest, threshold-independent metric. None if single-class."""
+    """AUROC - the honest, threshold-independent metric. None if single-class."""
     if not _both_classes_present(true_labels):
         print(
             "\nNOTE: test set has a single class; AUROC is undefined and "
@@ -229,51 +238,23 @@ def _operating_point_at_floor(
     # sklearn prepends an infinite threshold; clamp to 1.0 for a usable value.
     if not np.isfinite(thr):
         thr = 1.0
+
+    # Precision and F1 on WORTH at this exact operating point. Specificity alone
+    # hides how bad the false-alarm burden really is on a ~94%-negative set: at
+    # 6% prevalence, 0.56 specificity means most flags are wrong. Precision is
+    # the number that says so directly, so it belongs in the operating point.
+    at_op = (probabilities >= thr).astype(np.int64)
+    precision = float(
+        precision_score(true_labels, at_op, pos_label=1, zero_division=0)
+    )
+    worth_f1 = float(f1_score(true_labels, at_op, pos_label=1, zero_division=0))
     return {
         "threshold": thr,
         "sensitivity": float(tpr[idx]),
         "specificity": float(1.0 - fpr[idx]),
+        "precision": precision,
+        "worth_f1": worth_f1,
     }
-
-
-def _calibration(
-    true_labels: np.ndarray,
-    probabilities: np.ndarray,
-    n_bins: int = CALIBRATION_BINS,
-) -> tuple[float, float, dict | None]:
-    """Return (brier_score, expected_calibration_error, reliability_curve).
-
-    ECE is the sample-weighted average gap between mean predicted probability
-    and observed positive rate across equal-width probability bins. The curve
-    dict holds per-bin (mean_predicted, observed_rate, count) for plotting.
-    """
-    brier = float(brier_score_loss(true_labels, probabilities))
-
-    edges = np.linspace(0.0, 1.0, n_bins + 1)
-    # Bin index per sample; clip the right edge into the last bin.
-    bin_ids = np.clip(np.digitize(probabilities, edges[1:-1], right=False), 0, n_bins - 1)
-
-    n = len(probabilities)
-    ece = 0.0
-    mean_pred, obs_rate, counts = [], [], []
-    for b in range(n_bins):
-        mask = bin_ids == b
-        count = int(mask.sum())
-        if count == 0:
-            continue
-        conf = float(probabilities[mask].mean())
-        acc = float(true_labels[mask].mean())
-        ece += abs(acc - conf) * count / n
-        mean_pred.append(conf)
-        obs_rate.append(acc)
-        counts.append(count)
-
-    curve = {
-        "mean_predicted": mean_pred,
-        "observed_rate": obs_rate,
-        "counts": counts,
-    }
-    return brier, float(ece), curve
 
 
 def _save_reliability_diagram(
@@ -347,13 +328,18 @@ def _print_results(
 
     print("\nDeployable operating point (max specificity at the sensitivity floor):")
     if operating_point is None:
-        print(f"  NONE — no threshold meets the {sensitivity_floor:.2f} "
+        # ASCII only: this repo has already been bitten by a UnicodeEncodeError
+        # on Windows cp1252 consoles. Keep every print in this file ASCII.
+        print(f"  NONE - no threshold meets the {sensitivity_floor:.2f} "
               f"sensitivity floor on this test set.")
     else:
         print(f"  threshold  : {operating_point['threshold']:.3f}")
         print(f"  sensitivity: {operating_point['sensitivity']:.3f} "
               f"(WORTH; floor {sensitivity_floor:.2f})")
         print(f"  specificity: {operating_point['specificity']:.3f}")
+        print(f"  precision  : {operating_point['precision']:.3f} "
+              f"(share of flagged cases that really are WORTH)")
+        print(f"  WORTH F1   : {operating_point['worth_f1']:.3f}")
 
     print("\nCalibration:")
     print(f"  Brier score: {brier:.3f}  (lower is better)")

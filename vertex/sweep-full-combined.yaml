@@ -1,6 +1,20 @@
-# Vertex AI CustomJob config for the FULL combined-dataset FINALIST run.
-# Trains the 2 finalists (frozen_lr1e-3 vs twophase_p2lr1e-5) on all of
-# CBIS+RSNA+VinDr — the decisive comparison the subset sweeps set up.
+# Vertex AI CustomJob config for the FULL combined-dataset run.
+#
+# CURRENT USE (2026-08-20): the CLASS-IMBALANCE shortlist. The architecture
+# question was settled by the previous run of this config (full-gpu-01:
+# two-phase fine-tuning won, AUROC 0.810 vs frozen 0.792). SWEEP_CONFIGS in
+# scripts/sweep_vertex.py now holds 5 configs that fix that winning recipe and
+# vary only the imbalance handling, to attack its weak point (WORTH precision
+# 0.15-0.19, ~44% false positives at the 0.80 sensitivity floor).
+#
+# Read the results on op_precision / op_specificity. The subset pass
+# (sweep-imbalance-01) could not separate these recipes — its test split was
+# 24.6% positive, and precision is prevalence-dependent, so only this run's
+# real ~5.9%-positive distribution can answer the question.
+#
+# COST: ~3.4h per config at full scale (measured on full-gpu-01) => ~17h for 5,
+# plus the ~178 GB download. sweep_summary.csv is re-uploaded after every
+# config, so partial results survive a crash.
 #
 # GPU-ACTIVE. Requires quota first: "Custom model training NVIDIA T4 GPUs" >= 1
 # in us-east1 (fresh projects start at 0). Request it in the Cloud console
@@ -40,7 +54,10 @@ workerPoolSpecs:
     replicaCount: 1
     diskSpec:
       bootDiskType: pd-ssd
-      bootDiskSizeGb: 250
+      # 250 GB failed ("Replicas low on disk") on 2026-08-17 — the combined
+      # datasets + OS/container/CUDA overhead exceed it. 500 GB gives real
+      # headroom over the ~178 GB sampled estimate (RSNA ran larger than sampled).
+      bootDiskSizeGb: 500
     pythonPackageSpec:
       executorImageUri: us-docker.pkg.dev/vertex-ai/training/tf-gpu.2-17.py310:latest
       # CPU fallback container (use with the e2-standard-16 machine above):
@@ -60,4 +77,4 @@ workerPoolSpecs:
         - --max-workers
         - "16"
         - --checkpoint-dir
-        - gs://b2-foundation/second-look/checkpoints/sweep-full-01
+        - gs://b2-foundation/second-look/checkpoints/full-gpu-02-imbalance

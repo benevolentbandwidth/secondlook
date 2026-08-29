@@ -30,6 +30,28 @@ model. Keys per config (all optional except ``name``):
                       to disable the bias — recommended when fine-tuning, where
                       1.5x can tip the model into an all-positive collapse.
 
+  CLASS-IMBALANCE keys (the levers against the low-precision weak point):
+    loss            : "bce" (default) or "focal"
+    focal_gamma     : focal focusing strength (default 2.0; 0 = no focusing)
+    focal_alpha     : focal's INTERNAL positive weight in [0,1] (default None =
+                      off). Set it only together with use_class_weights=False.
+    use_class_weights : False turns Keras class_weight off entirely (default
+                      True). At the real ~6%-positive distribution the balanced
+                      weight is ~8x on positives; stacking that under focal
+                      alpha double-counts the imbalance and costs precision.
+    max_neg_per_pos : per-dataset cap on negatives per positive in the TRAIN
+                      split (default None = no rebalancing). Rebalances the
+                      dataset MIX (RSNA's 54k mostly-negative images otherwise
+                      swamp CBIS+VinDr). Only ever drops negatives; val/test are
+                      never touched, so reported metrics stay honest.
+    dataset_fractions : {"rsna": 0.3} — keep this share of that dataset's TRAIN
+                      negatives. Applied before max_neg_per_pos.
+    input_size      : (H, W) override, e.g. (320, 320). Default 224x224 from
+                      config.constants. NOTE: INPUT_SIZE is a "fixed decision"
+                      in CLAUDE.md with TF Lite / on-device implications —
+                      changing it is a deliberate act, not a free knob, and the
+                      in-memory tf.data cache grows with the square of it.
+
   mode="single" (one-shot) keys:
     freeze_backbone : True keeps MobileNetV2 frozen (head-only); False fine-tunes
     learning_rate   : Adam LR. ~1e-3 for frozen; ~1e-4/1e-5 if fine-tuning
@@ -82,32 +104,91 @@ DEFAULT_CHECKPOINT_DIR = "gs://b2-foundation/second-look/checkpoints/sweep"
 # ---------------------------------------------------------------------------
 # >>> EDIT THE SWEEP HERE <<<  (see the module docstring for the key meanings)
 # ---------------------------------------------------------------------------
-# FINALISTS for the full combined run. The subset sweeps (subset-01/02) narrowed
-# the field to these two: the frozen head (stable, strong on small data) vs the
-# two-phase fine-tune at p2lr=1e-5 (the winner among fine-tunes: AUROC 0.940,
-# macro-F1 0.919, no collapse). On the subset they were within noise; the full
-# ~55k-image run is the decider, where fine-tuning has the data to pull ahead.
+# IMBALANCE SWEEP — FULL COMBINED RUN (shortlist from sweep-imbalance-01).
+#
+# Every config FIXES the winning two-phase recipe (full-gpu-01: AUROC 0.810 vs
+# frozen 0.792) and varies ONLY the imbalance handling, to attack that run's
+# weak point: WORTH precision 0.15-0.19 and ~44% false positives to reach the
+# 0.80 sensitivity floor.
+#
+# WHY THIS SHORTLIST IS REASONED, NOT RANKED. The subset sweep
+# (sweep-imbalance-01, 2026-08-19) ran all 7 candidates successfully but
+# SEPARATED NONE OF THEM: op_specificity spanned 0.975-0.982 across every
+# config, a ~9-image spread on 1,283 test negatives — inside noise. Worse, its
+# test split was 24.6% positive, so its precision (0.91-0.94) cannot estimate
+# precision at the real 5.9%: precision depends on prevalence, so a
+# CBIS-over-weighted subset can never predict it. Compare full-gpu-01's
+# op_specificity 0.556 against the subset's 0.98 for the same recipe.
+#
+# So the subset validated the MACHINERY (7/7 trained, checkpointed, calibrated)
+# and the shortlist below is chosen by MECHANISM. Judge it on op_precision /
+# op_specificity here, where the distribution is finally the real one.
+#
+# COST: full-gpu-01 ran ~3.4h/config, so 5 configs ~= 17h training + the ~178 GB
+# download. The summary CSV is re-uploaded after every config, so a timeout or
+# crash still leaves the completed configs' results in GCS.
 SWEEP_CONFIGS: list[dict] = [
-    # Reference floor: frozen MobileNetV2 head.
-    {"name": "frozen_lr1e-3", "mode": "single", "freeze_backbone": True,
-     "learning_rate": 1e-3, "dropout_rate": 0.3},
-
-    # Two-phase fine-tune: converge the head (frozen) then unfreeze the backbone
-    # at a low LR with BatchNorm kept frozen — the stable recipe validated in
-    # subset-02. The one most likely to beat the floor once given full data.
-    {"name": "twophase_p2lr1e-5", "mode": "two_phase",
+    # --- Control: the reigning champion, re-run IN THIS JOB so the comparison
+    # is free of run-to-run confounds (same splits, same build, same hardware).
+    # Expect it to reproduce roughly AUROC 0.810 / op_specificity 0.556. ---
+    {"name": "tp_bce_cw", "mode": "two_phase",
      "phase1_lr": 1e-3, "phase2_lr": 1e-5, "phase1_epochs": 12, "phase2_epochs": 15,
-     "dropout_rate": 0.3},
+     "dropout_rate": 0.3, "loss": "bce"},
+
+    # --- The cheapest possible fix, and the most diagnostic: is the class
+    # weighting ITSELF the precision killer? At 5.9% positive, "balanced" is
+    # ~8x on positives and WORTH_WEIGHT_MULTIPLIER puts 1.5x on top of that —
+    # ~12x total pressure toward flagging. This turns it off, changing nothing
+    # else. If it wins, the weak point was self-inflicted. ---
+    {"name": "tp_bce_nocw", "mode": "two_phase",
+     "phase1_lr": 1e-3, "phase2_lr": 1e-5, "phase1_epochs": 12, "phase2_epochs": 15,
+     "dropout_rate": 0.3, "loss": "bce", "use_class_weights": False},
+
+    # --- Focal owning the imbalance alone (class weights OFF), two gammas.
+    # gamma is the focusing strength: higher concentrates more gradient on the
+    # hard boundary cases, which is where precision is won or lost. ---
+    {"name": "tp_focal_g2_a25", "mode": "two_phase",
+     "phase1_lr": 1e-3, "phase2_lr": 1e-5, "phase1_epochs": 12, "phase2_epochs": 15,
+     "dropout_rate": 0.3, "loss": "focal", "focal_gamma": 2.0,
+     "focal_alpha": 0.25, "use_class_weights": False},
+    {"name": "tp_focal_g3_a25", "mode": "two_phase",
+     "phase1_lr": 1e-3, "phase2_lr": 1e-5, "phase1_epochs": 12, "phase2_epochs": 15,
+     "dropout_rate": 0.3, "loss": "focal", "focal_gamma": 3.0,
+     "focal_alpha": 0.25, "use_class_weights": False},
+
+    # --- Dataset-mix rebalancing, MEANINGFUL FOR THE FIRST TIME HERE: only at
+    # full scale does RSNA (~38k train images, ~2% positive) actually swamp
+    # CBIS + VinDr. Cap 10 (not the subset's 4) on purpose — 4 would cut RSNA
+    # ~10x and leave a ~50%-positive train set, discarding most of the data.
+    # A boundary shift from rebalancing is harmless by itself (the operating
+    # point is read off the ROC curve at the sensitivity floor, so only the
+    # RANKING matters); the real risk is throwing away information, which is
+    # exactly what the gentler cap hedges. ---
+    {"name": "tp_focal_g2_a25_mix10", "mode": "two_phase",
+     "phase1_lr": 1e-3, "phase2_lr": 1e-5, "phase1_epochs": 12, "phase2_epochs": 15,
+     "dropout_rate": 0.3, "loss": "focal", "focal_gamma": 2.0,
+     "focal_alpha": 0.25, "use_class_weights": False, "max_neg_per_pos": 10.0},
 ]
 
 
-# Columns collected per config into sweep_summary.csv (ordered for readability).
+# Columns collected per config into sweep_summary.csv (ordered for readability:
+# identity -> knobs -> headline metrics -> operating point -> calibration).
 SUMMARY_COLUMNS = [
     "name", "status", "mode", "freeze_backbone", "learning_rate", "dropout_rate",
     "worth_weight_multiplier", "batch_size", "max_epochs", "epochs_ran",
+    # Imbalance knobs under test.
+    "loss", "focal_gamma", "focal_alpha", "use_class_weights",
+    "max_neg_per_pos", "dataset_fractions", "input_size",
+    "train_images", "train_positives", "train_pos_rate", "train_mix",
+    # Headline metrics.
     "auroc", "macro_f1", "worth_sensitivity", "passed_floor",
-    "op_threshold", "op_sensitivity", "op_specificity",
-    "brier", "ece", "checkpoint", "duration_sec", "error",
+    # The operating point at the 0.80 floor — op_precision and op_specificity
+    # are THE columns this sweep is trying to move.
+    "op_threshold", "op_sensitivity", "op_specificity", "op_precision",
+    "op_worth_f1",
+    # Calibration, before and after temperature scaling fitted on val.
+    "brier", "ece", "temperature", "ece_calibrated",
+    "checkpoint", "duration_sec", "error",
 ]
 
 
@@ -158,10 +239,92 @@ def _upload_summary(rows: list[dict], checkpoint_dir: str, work_dir: Path) -> No
         print(f"[sweep] could not upload summary: {exc}")
 
 
+def _calibrate(
+    model, val_df, eval_result: dict, batch_size: int, input_size, gcs_config_dir: str
+) -> dict:
+    """Fit temperature scaling on VAL, report its effect on the TEST ECE.
+
+    Fitting on val and applying to test is the only honest order — a temperature
+    fitted on test would report a calibration the model does not have. Because
+    the transform is monotonic, AUROC and the operating point at the sensitivity
+    floor are unchanged, so this can never trade away WORTH sensitivity.
+
+    Failures here are caught and recorded: a calibration problem must not throw
+    away a config's trained checkpoint and its real metrics.
+    """
+    import numpy as np  # heavy imports stay inside functions (see module note)
+
+    from modeling.calibrate import (
+        apply_temperature,
+        expected_calibration_error,
+        fit_temperature,
+    )
+    from modeling.train import _build_dataset
+
+    try:
+        val_ds = _build_dataset(
+            val_df, "", IMAGE_COL, LABEL_COL, input_size, batch_size, shuffle=False
+        )
+        val_probs = model.predict(val_ds, verbose=0).ravel()
+        val_labels = np.asarray([int(y) for y in val_df[LABEL_COL]])
+
+        temperature = fit_temperature(val_labels, val_probs)
+
+        test_probs = eval_result["probabilities"]
+        test_labels = eval_result["true_labels"]
+        ece_cal = expected_calibration_error(
+            test_labels, apply_temperature(test_probs, temperature)
+        )
+        print(f"[calibrate] test ECE {eval_result.get('ece'):.4f} -> {ece_cal:.4f} "
+              f"(T={temperature:.4f} fitted on val)")
+        _write_calibration_json(gcs_config_dir, temperature, eval_result, ece_cal)
+        return {"temperature": round(float(temperature), 4),
+                "ece_calibrated": round(float(ece_cal), 4)}
+    except Exception as exc:
+        print(f"[calibrate] SKIPPED (calibration failed): {exc}")
+        return {"temperature": None, "ece_calibrated": None}
+
+
+def _write_calibration_json(
+    gcs_config_dir: str, temperature: float, eval_result: dict, ece_cal: float
+) -> None:
+    """Persist the temperature beside the checkpoint so the UX layer can use it.
+
+    label_mapper.confidence_to_tier's thresholds are placeholders "pending
+    calibration"; this file is what unblocks setting them for real.
+    """
+    import json
+    import tempfile
+
+    payload = {
+        "temperature": float(temperature),
+        "method": "temperature_scaling",
+        "fitted_on": "val split",
+        "ece_before": float(eval_result.get("ece")),
+        "ece_after": float(ece_cal),
+        "note": "Apply as sigmoid(logit(p) / T). Monotonic: AUROC and the "
+                "operating point at the sensitivity floor are unchanged.",
+    }
+    try:
+        local = Path(tempfile.gettempdir()) / "calibration.json"
+        local.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        dest = gcs_config_dir.rstrip("/") + "/calibration.json"
+        if dest.startswith("gs://"):
+            _gcs_upload_file(local, dest)
+        else:
+            Path(gcs_config_dir).mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copyfile(local, dest)
+        print(f"[calibrate] temperature -> {dest}")
+    except Exception as exc:
+        print(f"[calibrate] could not write calibration.json: {exc}")
+
+
 def _run_one_config(cfg: dict, args, train_df, val_df, test_df, work_dir: Path) -> dict:
     """Train + evaluate a single config. Returns one summary row dict."""
     import tensorflow as tf
     from config.constants import INPUT_SIZE
+    from modeling.dataset_mix import rebalance_train_mix, train_mix_stats
     from modeling.train import train_baseline, train_baseline_two_phase
     from modeling.evaluate import evaluate_baseline
 
@@ -171,11 +334,35 @@ def _run_one_config(cfg: dict, args, train_df, val_df, test_df, work_dir: Path) 
     batch_size = int(cfg.get("batch_size", args.batch_size))
     worth_mult = cfg.get("worth_weight_multiplier")  # None -> default 1.5
 
+    # Imbalance knobs.
+    loss = str(cfg.get("loss", "bce"))
+    focal_gamma = float(cfg.get("focal_gamma", 2.0))
+    focal_alpha = cfg.get("focal_alpha")  # None -> focal class balancing off
+    use_class_weights = bool(cfg.get("use_class_weights", True))
+    max_neg_per_pos = cfg.get("max_neg_per_pos")
+    dataset_fractions = cfg.get("dataset_fractions")
+    input_size = tuple(cfg.get("input_size", INPUT_SIZE))
+
     row = {
         "name": name, "status": "running", "mode": mode,
         "dropout_rate": dropout, "batch_size": batch_size,
         "worth_weight_multiplier": worth_mult,
+        "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,
+        "focal_alpha": focal_alpha if loss == "focal" else None,
+        "use_class_weights": use_class_weights,
+        "max_neg_per_pos": max_neg_per_pos,
+        "dataset_fractions": str(dataset_fractions) if dataset_fractions else None,
+        "input_size": f"{input_size[0]}x{input_size[1]}",
     }
+
+    # Rebalance the TRAIN mix only. val_df/test_df are deliberately untouched so
+    # every reported metric stays on the real screening distribution.
+    config_train_df = rebalance_train_mix(
+        train_df,
+        max_neg_per_pos=max_neg_per_pos,
+        dataset_fractions=dataset_fractions,
+    )
+    row.update(train_mix_stats(config_train_df))
 
     local_ckpt_dir = work_dir / "checkpoints" / name
     gcs_config_dir = args.checkpoint_dir.rstrip("/") + "/" + name
@@ -194,12 +381,14 @@ def _run_one_config(cfg: dict, args, train_df, val_df, test_df, work_dir: Path) 
               f"worth_mult={worth_mult}")
         print("#" * 70)
         history = train_baseline_two_phase(
-            train_df, val_df,
+            config_train_df, val_df,
             image_dir="", image_col=IMAGE_COL, label_col=LABEL_COL,
-            input_size=INPUT_SIZE, batch_size=batch_size,
+            input_size=input_size, batch_size=batch_size,
             phase1_epochs=p1, phase2_epochs=p2, phase1_lr=p1_lr, phase2_lr=p2_lr,
             dropout_rate=dropout, checkpoint_dir=str(local_ckpt_dir),
             worth_weight_multiplier=worth_mult,
+            loss=loss, focal_gamma=focal_gamma, focal_alpha=focal_alpha,
+            use_class_weights=use_class_weights,
         )
     else:
         freeze = bool(cfg.get("freeze_backbone", True))
@@ -212,12 +401,14 @@ def _run_one_config(cfg: dict, args, train_df, val_df, test_df, work_dir: Path) 
               f"worth_mult={worth_mult}")
         print("#" * 70)
         history = train_baseline(
-            train_df, val_df,
+            config_train_df, val_df,
             image_dir="", image_col=IMAGE_COL, label_col=LABEL_COL,
-            input_size=INPUT_SIZE, batch_size=batch_size, max_epochs=max_epochs,
+            input_size=input_size, batch_size=batch_size, max_epochs=max_epochs,
             checkpoint_dir=str(local_ckpt_dir),
             freeze_backbone=freeze, learning_rate=lr, dropout_rate=dropout,
             worth_weight_multiplier=worth_mult,
+            loss=loss, focal_gamma=focal_gamma, focal_alpha=focal_alpha,
+            use_class_weights=use_class_weights,
         )
     row["epochs_ran"] = len(history.history.get("loss", []))
 
@@ -229,7 +420,7 @@ def _run_one_config(cfg: dict, args, train_df, val_df, test_df, work_dir: Path) 
         print(f"[sweep] evaluating '{name}' on the test split")
         res = evaluate_baseline(
             model, test_df, image_dir="", image_col=IMAGE_COL, label_col=LABEL_COL,
-            input_size=INPUT_SIZE, batch_size=batch_size, output_dir=gcs_config_dir,
+            input_size=input_size, batch_size=batch_size, output_dir=gcs_config_dir,
         )
         op = res.get("operating_point") or {}
         row.update({
@@ -240,9 +431,14 @@ def _run_one_config(cfg: dict, args, train_df, val_df, test_df, work_dir: Path) 
             "op_threshold": op.get("threshold"),
             "op_sensitivity": op.get("sensitivity"),
             "op_specificity": op.get("specificity"),
+            "op_precision": op.get("precision"),
+            "op_worth_f1": op.get("worth_f1"),
             "brier": res.get("brier_score"),
             "ece": res.get("ece"),
         })
+        row.update(
+            _calibrate(model, val_df, res, batch_size, input_size, gcs_config_dir)
+        )
         del model
     else:
         print(f"[sweep] '{name}' produced no checkpoint; skipping eval")
@@ -288,10 +484,27 @@ def run(args: argparse.Namespace) -> None:
 
     print("\n[sweep] all configs done. Summary:")
     ok = [r for r in rows if r.get("status") == "ok"]
-    ranked = sorted(ok, key=lambda r: (r.get("auroc") is None, -(r.get("auroc") or 0)))
-    for r in ranked:
-        print(f"  {r['name']:22s} AUROC={r.get('auroc')} macroF1={r.get('macro_f1')} "
-              f"WORTHsens={r.get('worth_sensitivity')} floor={r.get('passed_floor')}")
+
+    # Ranked by SPECIFICITY AT THE SENSITIVITY FLOOR, not AUROC. The floor is
+    # already met by construction at that operating point, so among configs that
+    # are equally safe, the better one is the one that raises fewer false
+    # alarms. AUROC barely moves under loss reweighting (it reranks nothing), so
+    # ranking on it would hide exactly the effect this sweep is measuring.
+    def _key(r):
+        spec = r.get("op_specificity")
+        return (spec is None, -(spec or 0.0))
+
+    print(f"  {'config':24s} {'AUROC':>6s} {'macroF1':>8s} {'spec@floor':>11s} "
+          f"{'prec@floor':>11s} {'sens':>6s} {'ECE':>6s} {'ECEcal':>7s}")
+    for r in sorted(ok, key=_key):
+        def _f(key, width=6, nd=3):
+            v = r.get(key)
+            return f"{v:>{width}.{nd}f}" if isinstance(v, (int, float)) else f"{'n/a':>{width}s}"
+        print(f"  {r['name']:24s} {_f('auroc')} {_f('macro_f1', 8)} "
+              f"{_f('op_specificity', 11)} {_f('op_precision', 11)} "
+              f"{_f('op_sensitivity')} {_f('ece')} {_f('ece_calibrated', 7)}")
+    print("  (ranked by specificity at the 0.80 WORTH-sensitivity floor; "
+          "the floor is met by construction at that operating point)")
     failed = [r["name"] for r in rows if r.get("status") == "failed"]
     if failed:
         print(f"[sweep] FAILED configs: {failed}")
