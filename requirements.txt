@@ -8,3 +8,4 @@ matplotlib>=3.7
 pytest>=7.4
 PyYAML>=6.0.2
 google-cloud-storage>=2.18
+gradio>=6.0  # demo UI (demos/second_look_app.py)
