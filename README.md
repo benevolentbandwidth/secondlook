@@ -101,7 +101,7 @@ The [`frontend/`](frontend/) folder holds native apps that run the whole flow on
 | [iOS](frontend/README.md) | SwiftUI, TensorFlow Lite (CocoaPods) | OpenCV port of the Python pipeline (Objective-C++) |
 | [Android](frontend/android/README.md) | Jetpack Compose, TensorFlow Lite | The research pipeline's own Python code, run on-device through Chaquopy |
 
-Both apps bundle a ~4.4 MB `second_look.tflite` that takes a 224×224×1 input. The tier cut-points in the apps are still provisional.
+The Android app bundles a ~4.4 MB `second_look.tflite` (224×224×1 input, float16 weights). The iOS app expects the same file in `frontend/SecondLook/`, but the repo's `.gitignore` excludes `*.tflite`, so it has to be added locally. The tier cut-points in the apps are still provisional.
 
 ## Results
 
@@ -158,7 +158,7 @@ An October 2026 audit of the data pipeline found issues that cap the current mod
 - **Heavy downsampling.** Full-resolution mammograms are squashed to 224×224, a 13–23× reduction that also distorts the aspect ratio. Fine calcifications can be lost.
 - **Quality-gate side effect.** Images that fail the quality gate become blank inputs but keep their label (about 6% of RSNA and 12% of VinDr).
 - **Optimistic operating point.** The 80%-sensitivity threshold is currently chosen on the test set and scored per image, not per breast. AUROC is not affected.
-- **No export step in the training code.** The apps' `.tflite` is produced outside this pipeline, so there is no script yet that turns a training checkpoint into the bundled model.
+- **The app model is not the model in these results.** The apps' `.tflite` was produced outside this pipeline and does not match any checkpoint behind the numbers above. There is no script yet that turns a training checkpoint into the bundled model.
 
 ## Roadmap
 
