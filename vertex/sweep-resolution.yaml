@@ -1,0 +1,61 @@
+# Vertex AI CustomJob: INPUT-RESOLUTION run (--sweep resolution).
+#
+# The top remaining hypothesis. The imbalance sweep (full-gpu-02) showed that
+# reweighting the loss cannot fix the false-alarm problem — every lever lost to
+# the plain control. That points at a ceiling on SEPARABILITY rather than on
+# where the boundary sits: 224x224 may simply not carry enough signal for
+# subtle findings (a known ceiling on RSNA).
+#
+# 224 / 288 / 320, all in ONE job so the comparison is PAIRED — same splits,
+# same seed, same hardware. After full-gpu-01 vs -02 showed a 0.12 specificity
+# swing from randomness alone, cross-job comparison is not acceptable evidence.
+#
+# INPUT_SIZE is a "fixed decision" in CLAUDE.md with TF Lite / on-device
+# implications. This run produces the EVIDENCE for or against changing it; it
+# does not change it. If a larger size wins, converting + measuring TF Lite
+# size/latency at that size is a required follow-up before adopting it.
+#
+# MEMORY: the in-memory tf.data cache is 4 bytes * H * W per image across 54k
+# train + 11k val images => ~17 GB at 224, ~22 GB at 288, ~27 GB at 320,
+# against the VM's 60 GB. 320 is the safe ceiling; 384 (~38 GB before overhead)
+# is deliberately not attempted. If a config still OOMs, set `cache: False` on
+# it in SWEEPS -- correct but much slower, since CLAHE then re-runs every epoch.
+#
+# COST: higher resolution costs more per epoch; budget ~20h for the three.
+#
+# SUBMIT (from github/secondlook, after staging the sdist):
+#   gcloud ai custom-jobs create \
+#     --project=b2-second-look --region=us-east1 \
+#     --display-name="second-look-resolution-$(date +%Y%m%d-%H%M%S)" \
+#     --service-account=vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com \
+#     --config=vertex/sweep-resolution.yaml
+
+workerPoolSpecs:
+  - machineSpec:
+      machineType: n1-standard-16
+      acceleratorType: NVIDIA_TESLA_T4
+      acceleratorCount: 1
+    replicaCount: 1
+    diskSpec:
+      bootDiskType: pd-ssd
+      bootDiskSizeGb: 500
+    pythonPackageSpec:
+      executorImageUri: us-docker.pkg.dev/vertex-ai/training/tf-gpu.2-17.py310:latest
+      packageUris:
+        - gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz
+      pythonModule: scripts.sweep_vertex
+      args:
+        - --sweep
+        - resolution
+        - --datasets
+        - cbis
+        - rsna
+        - vindr
+        - --max-epochs
+        - "20"
+        - --batch-size
+        - "32"
+        - --max-workers
+        - "16"
+        - --checkpoint-dir
+        - gs://b2-foundation/second-look/checkpoints/full-gpu-04-resolution

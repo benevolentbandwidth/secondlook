@@ -1,0 +1,69 @@
+# Vertex AI CustomJob config for the CLASS-IMBALANCE subset sweep.
+#
+# Purpose: the full run (full-gpu-01) settled the architecture question —
+# two-phase fine-tuning won (AUROC 0.810 vs frozen 0.792) — and exposed the
+# weak point this sweep attacks: WORTH precision 0.15-0.19 and ~44% false
+# positives to reach the 0.80 sensitivity floor. Every config in
+# scripts/sweep_vertex.py:SWEEP_CONFIGS now FIXES that winning recipe and
+# varies ONLY the imbalance handling (loss function, class weighting, mix).
+#
+# This is the CHEAP iteration pass: --limit 2000 per dataset (~6k images,
+# ~11 GB) so 7 configs finish in hours, not days. The full run comes after,
+# using vertex/sweep-full-combined.yaml with the shortlist.
+#
+# READ THE RESULTS ON op_specificity / op_precision, NOT AUROC. Loss
+# reweighting moves the decision boundary, not the ranking, so AUROC is
+# nearly blind to exactly the effect being measured here.
+#
+# SUBSET CAVEAT (CLAUDE.md): --limit samples EQUALLY per dataset, which
+# over-weights CBIS (~87% positive) relative to the RSNA-dominated full run
+# (~6% positive). These numbers RANK loss recipes; they are not final. The
+# dataset-mix config is a code-path check only — mix rebalancing can only be
+# judged on the full run, where RSNA actually does the swamping it corrects.
+#
+# SUBMIT (from github/secondlook, AFTER re-staging the sdist):
+#   python setup.py sdist --dist-dir dist
+#   gcloud storage cp dist/second_look_training-0.1.0.tar.gz \
+#     gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz
+#   gcloud ai custom-jobs create \
+#     --project=b2-second-look --region=us-east1 \
+#     --display-name="second-look-sweep-imbalance-$(date +%Y%m%d-%H%M%S)" \
+#     --service-account=vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com \
+#     --config=vertex/sweep-subset-imbalance.yaml
+#
+# Verify the active account is hdawy@bu.edu first (`gcloud config get-value
+# account` + `gcloud auth print-access-token`) — it is the only one with bucket
+# and actAs access, and an expired hdawy@noon.com token fails non-obviously.
+
+workerPoolSpecs:
+  - machineSpec:
+      machineType: n1-standard-16
+      acceleratorType: NVIDIA_TESLA_T4
+      acceleratorCount: 1
+    replicaCount: 1
+    diskSpec:
+      bootDiskType: pd-ssd
+      # ~11 GB of images at --limit 2000 x 3 datasets, plus OS/container/CUDA.
+      # 200 GB is generous on purpose: the full run's 250 GB failure showed how
+      # unpleasant an out-of-disk failure is several hours in.
+      bootDiskSizeGb: 200
+    pythonPackageSpec:
+      executorImageUri: us-docker.pkg.dev/vertex-ai/training/tf-gpu.2-17.py310:latest
+      packageUris:
+        - gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz
+      pythonModule: scripts.sweep_vertex
+      args:
+        - --datasets
+        - cbis
+        - rsna
+        - vindr
+        - --limit
+        - "2000"
+        - --max-epochs
+        - "20"
+        - --batch-size
+        - "32"
+        - --max-workers
+        - "16"
+        - --checkpoint-dir
+        - gs://b2-foundation/second-look/checkpoints/sweep-imbalance-01
