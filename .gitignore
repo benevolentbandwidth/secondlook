@@ -53,6 +53,10 @@ checkpoints/
 *.tflite
 *.pb
 
+# Exception: the models the mobile apps ship are part of the app, not local
+# artifacts — without them the apps cannot be built or run.
+!frontend/android/app/src/main/assets/second_look.tflite
+
 # Notebook checkpoints
 .ipynb_checkpoints/
 

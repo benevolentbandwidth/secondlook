@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# SecondLook — Xcode / CocoaPods .gitignore
+# NOTE: Pods/ is NOT committed. Clone, then run `pod install` to regenerate it.
+# Podfile and Podfile.lock ARE committed so versions stay pinned.
+# ---------------------------------------------------------------------------
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+__MACOSX/
+
+# Xcode - build & derived data
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Xcode - per-user state (do NOT commit)
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# Swift Package Manager - per-user only (keep shared Package.resolved)
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+.swiftpm/configuration/
+
+# CocoaPods
+# Pods/ is ignored; regenerate with `pod install`.
+# Podfile and Podfile.lock are always tracked.
+Pods/
+
+# Fastlane / misc
+fastlane/report.xml
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Injection / obsolete
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3

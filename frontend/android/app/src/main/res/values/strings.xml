@@ -1,0 +1,36 @@
+<resources>
+    <string name="app_name">SecondLook</string>
+
+    <!-- 1. Disclaimer gate -->
+    <string name="disclaimer_title">Second Look</string>
+    <string name="disclaimer_body">This app provides a non-diagnostic, informational review of mammogram images. It does not replace professional medical evaluation. All analysis runs on-device — no images are stored or transmitted.</string>
+    <string name="disclaimer_agreement">I understand this is not a medical diagnosis, and I will consult a healthcare professional for any concerns.</string>
+    <string name="disclaimer_continue">Continue</string>
+
+    <!-- 2. Capture -->
+    <string name="capture_title">Add an Image</string>
+    <string name="capture_body">Choose a mammogram image from your library, or take a photo.</string>
+    <string name="capture_choose_image">Choose Image</string>
+    <string name="capture_take_photo">Take Photo</string>
+
+    <!-- 3. Scanning -->
+    <string name="scanning_title">Analyzing on-device…</string>
+    <string name="scanning_privacy">Nothing leaves your phone</string>
+
+    <!-- 4. Results -->
+    <string name="results_tier_label">Concern Tier</string>
+    <string name="results_tier_low">Low Concern</string>
+    <string name="results_tier_moderate">Moderate — Worth a Second Look</string>
+    <string name="results_tier_elevated">Elevated — Worth a Second Look</string>
+    <string name="results_tier_unavailable">Analysis Unavailable</string>
+    <string name="results_confidence">%1$d%%</string>
+    <string name="results_meaning_heading">What this means</string>
+    <string name="results_meaning_body">This is not a diagnosis. The tier reflects patterns the model found notable, not confirmed findings.</string>
+    <string name="results_meaning_error">The analysis could not be completed. Please try again with a different image.</string>
+    <string name="results_next_step_heading">Next step</string>
+    <string name="results_next_step_body">Please consult a healthcare professional for any concerns.</string>
+    <string name="results_scan_another">Scan Another Image</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_selected_image">The mammogram image you selected</string>
+</resources>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown when analysis could not complete. iOS "questionmark.circle.fill". -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,3 a9,9 0 1 0 0,18 a9,9 0 1 0 0,-18 z"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2" />
+    <path
+        android:pathData="M9.1,9.4 a2.9,2.9 0 1 1 4.4,2.9 c-1,0.6 -1.5,1.2 -1.5,2.3"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round"
+        android:strokeWidth="2" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,16.4 a1.2,1.2 0 1 0 0,2.4 a1.2,1.2 0 1 0 0,-2.4 z" />
+</vector>
