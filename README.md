@@ -1,249 +1,200 @@
+<div align="center">
+
 # Second Look
 
-Second Look is a privacy-preserving, on-device mammogram analysis prototype. This branch (`integration/data-pipeline`) integrates the Phase 1 pipeline: a binary label mapper (CBIS-DDSM, RSNA, VinDr, INbreast to `WORTH_SECOND_LOOK` / `NOT_WORTH_SECOND_LOOK`) with UX tier helpers, a preprocessor (CLAHE, breast masking, pectoral removal, orientation, 224x224 float32 output), an input `quality_check` gate, a stratified splitter (CBIS's official train/test boundary, or a patient-grouped 70/15/15 for RSNA), GCS retrievers for CBIS-DDSM, RSNA, and VinDr-Mammo, and a MobileNetV2 baseline classifier with a sigmoid head, binary-crossentropy training, and sensitivity-floor evaluation. **Trainable datasets:** CBIS-DDSM, RSNA Screening Mammography, and VinDr-Mammo are all wired end-to-end through `scripts/build_dataset.py` and produce a unified `data/manifest.csv` consumed by `modeling/train.py`. Tests cover label round-trips, a fixture-gated preprocessing smoke test, mocked-GCS retriever tests, and an end-to-end smoke test on a sampled INbreast subset. See `second_look_work_breakdown_structure.docx`.
+**A privacy-first mammogram triage model that tells you whether an image is worth a second look, and that runs entirely on the device.**
 
-## Setup
+![Status](https://img.shields.io/badge/status-research%20prototype-orange)
+![Python](https://img.shields.io/badge/python-3.9--3.13-blue)
+![TensorFlow](https://img.shields.io/badge/TensorFlow-2.17%2B-FF6F00?logo=tensorflow&logoColor=white)
+![Training](https://img.shields.io/badge/training-Vertex%20AI-4285F4?logo=googlecloud&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-71%20passed-brightgreen)
 
-Requires Python 3.9–3.13. TensorFlow's deeply-nested wheels need Windows long paths enabled (one-time, elevated PowerShell):
+[Overview](#overview) · [How it works](#how-it-works) · [Results](#results) · [What we learned](#what-we-learned) · [Limitations](#known-limitations) · [Roadmap](#roadmap) · [Getting started](#getting-started)
+
+</div>
+
+> [!IMPORTANT]
+> Second Look is a **research prototype**. It is not a medical device, it has not been clinically validated, and it must not be used to make or replace any medical decision.
+
+---
+
+## Overview
+
+Breast cancer screening relies on radiologists reading large numbers of mammograms, most of which are normal. Second Look explores a narrow, safety-first question: **can a small model look at a single mammogram and flag the ones that deserve a closer look, without the image ever leaving the device?**
+
+The design has three commitments:
+
+- **Binary, not diagnostic.** The model outputs one probability: `WORTH_SECOND_LOOK` vs `NOT_WORTH_SECOND_LOOK`. It does not diagnose cancer. A separate UX layer turns the calibrated probability into a coarse concern tier: **Low / Moderate / Elevated**.
+- **On-device and private.** The target is a TensorFlow Lite model that runs in a phone or browser and stores and transmits nothing. Every architecture choice (MobileNetV2, 224×224 input, no custom ops) is made to keep that path open.
+- **Missing a case is the worst failure.** The project optimizes for sensitivity on the positive class, with a hard floor of **80% sensitivity**. False alarms are preferred over false reassurance.
+
+## How it works
+
+<p align="center">
+  <img src="demos/pipeline_diagram.png" alt="End-to-end pipeline: data, preprocessing, model, evaluation" width="100%">
+</p>
+
+### 1. Data
+
+Three public datasets are pulled from Google Cloud Storage, mapped to one binary label, and merged into a single manifest with **patient-disjoint** train / validation / test splits.
+
+| Dataset | Images | Positive rate | What counts as `WORTH_SECOND_LOOK` |
+|---|---:|---:|---|
+| [CBIS-DDSM](https://www.cancerimagingarchive.net/collection/cbis-ddsm/) | ~2.9k | ~87% | Biopsied lesions (malignant or benign) |
+| [RSNA Screening Mammography](https://www.kaggle.com/competitions/rsna-breast-cancer-detection) | 54,706 | ~2% | Confirmed cancer |
+| [VinDr-Mammo](https://physionet.org/content/vindr-mammo/1.0.0/) | 20,000 | ~5% | BI-RADS 4–5 |
+| **Combined** | **~77.5k** | **~6%** | |
+
+The combined set is deliberately **mostly negative**, which matches what a real screening population looks like. INbreast is also wired in for smoke testing.
+
+### 2. Preprocessing
+
+Every image passes a **quality gate** (rejects blank, low-contrast, or low-resolution inputs), then a deterministic preprocessing chain:
+
+<p align="center">
+  <img src="demos/preprocessing_grid.png" alt="Preprocessing stages from raw scan to 224x224 model input" width="100%">
+</p>
+
+Grayscale → CLAHE contrast enhancement → breast mask → background removal → pectoral muscle removal → orientation normalization → 224×224 model input.
+
+The pipeline also ships nine "real-world capture" augmentations (glare, motion blur, compression, moiré, brightness, contrast, occlusion, perspective, rotation) that mimic a phone photo of a screen or film. They are built and tested but not yet used in training runs.
+
+### 3. Model
 
 ```
-New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+grayscale 224×224
+  → 1×1 Conv (1 → 3 channels; keeps the model TF Lite safe, no Lambda layers)
+  → MobileNetV2 backbone (ImageNet weights)
+  → Global average pooling → Dropout
+  → Dense(1, sigmoid) → P(WORTH_SECOND_LOOK)
 ```
 
-Then:
+The model is trained with a **two-phase fine-tune**:
 
-```
-py -3.13 -m venv .venv
-.venv/Scripts/activate
-pip install -r requirements.txt
-```
+1. Train only the classification head, with the backbone frozen.
+2. Unfreeze the convolutional layers at a low learning rate (1e-5), **keeping BatchNorm frozen**.
 
-## Testing a dataset
+Unfreezing everything at once made the model collapse to "flag everything" on small, imbalanced batches. The two-phase recipe fixed that and became the champion.
 
-Smoke tests are gated on an env var pointing at the dataset root. This keeps CI green without the data and lets contributors run the full pipeline locally.
+### 4. Evaluation
 
-**INbreast** — expected layout: `<root>/birads{1..5}/*.png`. Samples 5 images per class (25 total), runs `quality_check` → `preprocess` → shape assert → augmentation → `quality_gate` → label round-trip.
+Accuracy is misleading on this data: a model that flags every CBIS image scores about 91% accuracy and is useless. Every run is scored with a fixed protocol:
 
-Change according to where you have your data stored, but example is:
-```
-INBREAST_ROOT="../../data/INbreast dataset - BI-RADS classification/İnbreast" \
-  pytest tests/test_smoke_inbreast.py -v
-``` 
-
-Runtime ~4 min (augmentation runs on full-res images). Expect `2 passed`.
-
-**Generic fixture** — drop a single mammogram at `tests/fixtures/sample_mammogram.png` and run:
-
-```
-pytest tests/test_smoke.py -v
-```
-
-**All tests** — `pytest tests/ -v`. Anything without its env var or fixture skips cleanly.
-
-## Getting the CBIS-DDSM dataset
-
-The data lives in `gs://b2-foundation/second-look/DDSM/`. The bucket holds the four CBIS case description CSVs at the top level and the converted PNG images under `cbis_ddsm/`. You need read access to the bucket.
-
-### One-time setup
-
-Install and initialize the gcloud SDK, then authenticate for Python:
-
-```bash
-gcloud auth application-default login
-```
-
-This is separate from `gcloud auth login`. The first one writes the credentials file that the Python `google-cloud-storage` library reads from. If you only run `gcloud auth login`, the build script will fail with a `DefaultCredentialsError`.
-
-To silence the quota project warning (optional):
-
-```bash
-gcloud auth application-default set-quota-project <your-gcp-project-id>
-```
-
-### Building the dataset
-
-The build script downloads the four case CSVs, joins them with the image folder structure in GCS, fetches the PNGs to a local cache, applies the official CBIS train/test split (val is carved out of train at 15%), and writes a training manifest.
-
-Full build (about 10 GB on disk, takes 20 to 40 minutes depending on bandwidth):
-
-```bash
-python scripts/build_dataset.py --use-gcs --datasets cbis --cache-dir data/cache
-```
-
-Outputs:
-- `data/manifest.csv` is the training manifest, one row per case folder, with `split`, `canonical_label`, and `image_local_path` columns.
-- `data/manifest_patients.csv` is a patient-level audit view.
-- `data/image_download_report.csv` lists the outcome of every download.
-
-The cache is keyed by case folder, so re-running the script is cheap. Already-downloaded PNGs are skipped.
-
-### Small local test before the full pull
-
-If you want to confirm everything works before committing to the full download, run with a row cap:
-
-```bash
-python scripts/build_dataset.py --use-gcs --datasets cbis --cache-dir data/cache --limit 100
-```
-
-That pulls about 100 cases (a few hundred MB) sampled across the train and test splits. Useful for verifying auth, paths, and downstream training code before pulling the full dataset.
-
-### Running on Vertex AI instead of your laptop
-
-Training the full model on a laptop is slow. The bucket is regional in
-**`us-east1`**, so run a Vertex AI **Custom Job in that region** — intra-region
-reads are free and fast. `scripts/train_vertex.py` is the entrypoint: it runs
-the whole loop on the VM (build → train → upload the best checkpoint to
-`gs://` → optional eval), downloading images to the VM's local disk via the
-same `build_dataset --use-gcs` path used above.
-
-**Fixed facts (verified 2026-07-10):**
-
-| Thing | Value |
+| Metric | Why it is reported |
 |---|---|
-| Project | `b2-second-look` (number `712337668384`) |
-| Region | `us-east1` (matches the `gs://b2-foundation` bucket) |
-| Training SA | `vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com` (read on the bucket; write scoped to `.../checkpoints/`) |
-| Checkpoints prefix | `gs://b2-foundation/second-look/checkpoints/` (only SA-writable location) |
-| Container (CPU smoke) | `us-docker.pkg.dev/vertex-ai/training/tf-cpu.2-17.py310:latest` |
-| Container (GPU scale-up) | `us-docker.pkg.dev/vertex-ai/training/tf-gpu.2-17.py310:latest` |
+| **AUROC** | Threshold-independent ranking quality; the headline number. |
+| **Macro-F1** | Exposes a model that collapses to one class, which AUROC and the sensitivity floor both miss. |
+| **Operating point** | The threshold that maximizes specificity while keeping sensitivity ≥ 80%. Reports specificity, precision, and the number of false alarms. |
+| **Calibration** | Brier score, ECE, and a reliability diagram. Temperature scaling is fitted on validation data. |
 
-On Vertex the attached SA is the credential — **no key file, and do NOT set
-`GOOGLE_APPLICATION_CREDENTIALS`** (that quirk is local-Windows-only).
+### 5. Training infrastructure
 
-**Prerequisite — grant the submitting user `actAs` on the SA (once, by a
-`b2-second-look` admin).** Running a job *as* the SA needs this; the submitting
-user cannot self-grant:
+Training runs as Google **Vertex AI** custom jobs on an NVIDIA T4, in the same region as the data bucket. One job downloads the ~178 GB dataset **once**, then trains and evaluates a whole sweep of configurations against the same splits. Each config writes its own checkpoint, calibration file, and a row in a ranked summary. Preprocessed images are cached in memory after the first epoch. Together with the GPU, that turned a projected ~3-day CPU run into ~10 hours.
 
-```bash
-gcloud iam service-accounts add-iam-policy-binding \
-  vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com \
-  --member="user:hdawy@bu.edu" \
-  --role="roles/iam.serviceAccountUser" \
-  --project=b2-second-look
-```
+## Results
 
-Without it, `custom-jobs create` fails with *"You do not have permission to act
-as service_account …"*.
+All numbers below are on the **full combined test set: 12,558 images, 738 positives (5.9%)**, which is a realistic screening distribution.
 
-**1. Package the code as a source distribution and stage it to GCS** (no Docker
-build — a prebuilt TF container runs the package). Re-run whenever code changes:
+### Headline
 
-```bash
-cd github/secondlook
-python setup.py sdist --dist-dir dist
-gsutil cp dist/second_look_training-0.1.0.tar.gz \
-  gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz
-```
+| Model | AUROC | Specificity at 80% sensitivity | Precision at 80% sensitivity |
+|---|---:|---:|---:|
+| Frozen MobileNetV2 (head only) | 0.792 | 0.51 | — |
+| **Two-phase fine-tuned MobileNetV2** | **0.82** (0.807–0.837 over 6 runs) | **~0.57** | **~0.10** |
 
-**2. Smoke run (CPU, ~200 CBIS cases, 1 epoch)** — validates the whole path and
-confirms a checkpoint lands in GCS. CPU sidesteps the GPU-quota gate on a fresh
-project. Use `--limit 200`, not a smaller number: CBIS is ~87% positive, so a
-too-small sample can leave a split with fewer than 3 negatives and the splitter
-(correctly) refuses to stratify. Expect a poor 1-epoch model — the smoke test
-validates the pipeline, not model quality.
+**What this means in plain terms:** to catch 80% of the positive cases, the current model also flags about 43% of the normal images. Because positives are rare, roughly **9 out of 10 flags are false alarms**. This is a solid, honest baseline and **not a deployable model**.
 
-```bash
-gcloud ai custom-jobs create \
-  --project=b2-second-look --region=us-east1 \
-  --display-name="second-look-smoke-$(date +%Y%m%d-%H%M%S)" \
-  --service-account=vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com \
-  --python-package-uris=gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz \
-  --worker-pool-spec=machine-type=e2-standard-4,replica-count=1,executor-image-uri=us-docker.pkg.dev/vertex-ai/training/tf-cpu.2-17.py310:latest,python-module=scripts.train_vertex \
-  --args=--datasets=cbis,--limit=200,--max-epochs=1,--checkpoint-dir=gs://b2-foundation/second-look/checkpoints/smoke-vertex,--run-eval
+### Experiments
 
-gsutil ls -l gs://b2-foundation/second-look/checkpoints/smoke-vertex/   # confirm best.keras
-```
+Each experiment ran inside a single Vertex job, with the control in the same job, so the comparisons are paired.
 
-> **PowerShell caveat:** unquoted commas are an array operator and will corrupt
-> `--worker-pool-spec` / `--args`. Put those values in variables and quote them
-> (`"--args=$jobArgs"`), or run from Git Bash / Cloud Shell as written.
+| Experiment | Result | Decision |
+|---|---|---|
+| Two-phase fine-tune vs frozen backbone | AUROC 0.810 vs 0.792 and specificity 0.56 vs 0.51 at full scale (tied on small subsets) | ✅ Adopted |
+| Naive full unfreeze | Collapsed toward "flag everything" (macro-F1 0.37–0.68) | ❌ Rejected |
+| Focal loss / no class weights | Small, inconclusive change in specificity | ➖ No large gain |
+| Rebalance the dataset mix (cap negatives per dataset) | Specificity fell to 0.52, below every control run | ❌ Harmful |
+| Input resolution 224 → 288 → 320 | Specificity +0.036, under 2× the noise | ➖ Not worth the on-device cost |
+| Temperature scaling | ECE ~50× lower on focal-loss models (0.112 → 0.002); little change on the class-weighted champion (0.218 → 0.212) | ✅ Adopted, more work needed |
+| Six repeat runs of the same recipe | AUROC spread 0.807–0.837; specificity sd ≈ 0.02 | Sets the noise floor |
 
-**3. Scale-up run (GPU, full CBIS)** — drop `--limit`, raise epochs, use a GPU
-pool (request `us-east1` GPU quota first if the project has none). Add
-`--boot-disk-size=200GB` for the full ~10–70 GB image pull, and
-`--no-freeze-backbone` in `--args` to fine-tune (biggest accuracy lever):
+### Milestones
 
-```bash
-gcloud ai custom-jobs create \
-  --project=b2-second-look --region=us-east1 \
-  --display-name="second-look-baseline-$(date +%Y%m%d-%H%M%S)" \
-  --service-account=vertex-training-b2-second-look@b2-second-look.iam.gserviceaccount.com \
-  --python-package-uris=gs://b2-foundation/second-look/vertex-staging/packages/second_look_training-0.1.0.tar.gz \
-  --worker-pool-spec=machine-type=n1-standard-8,accelerator-type=NVIDIA_TESLA_T4,accelerator-count=1,replica-count=1,boot-disk-size=200GB,executor-image-uri=us-docker.pkg.dev/vertex-ai/training/tf-gpu.2-17.py310:latest,python-module=scripts.train_vertex \
-  --args=--datasets=cbis,--max-epochs=12,--checkpoint-dir=gs://b2-foundation/second-look/checkpoints/baseline,--run-eval
-```
+| Date (2026) | Milestone |
+|---|---|
+| Jun | End-to-end pipeline (build → preprocess → train → evaluate) validated on real CBIS data |
+| Jul | First Vertex AI baseline: CBIS-only, AUROC 0.830 (only 37 test negatives, so wide error bars) |
+| Aug | CBIS + RSNA + VinDr combined; sweep harness; two-phase fine-tune; first full-scale GPU run |
+| Aug | Class-imbalance levers (focal loss, mix rebalancing) and temperature-scaling calibration |
+| Sep | Noise-floor and input-resolution studies |
+| Oct | Data and preprocessing audit; multi-view redesign prototyped |
 
-**4. Monitor:**
+## What we learned
 
-```bash
-gcloud ai custom-jobs list --project=b2-second-look --region=us-east1 --limit=5
-gcloud ai custom-jobs stream-logs <JOB_ID> --project=b2-second-look --region=us-east1
-```
+1. **Accuracy lies on imbalanced data.** Headline AUROC, macro-F1, and sensitivity at the floor instead.
+2. **Small subsets are optimistic.** Equal-per-dataset subsets reached ~0.94 AUROC. The full, mostly negative distribution gives ~0.82. Precision and specificity depend on prevalence, so only a full run can measure them.
+3. **One run is one sample.** The same recipe on the same splits scored 0.810 and 0.837 AUROC. Every comparison now runs its control in the same job.
+4. **Reweighting cannot fix separability.** Focal loss and rebalancing move the decision threshold. The real limit is that the classes are hard to separate from a single 224×224 image, so the next gains must add *signal*, not re-price errors.
+5. **Calibration is cheap, but not automatic.** A single fitted temperature made focal-loss models well calibrated, but barely helped the class-weighted champion. The Low / Moderate / Elevated tiers need calibrated probabilities, so this stays open.
 
-**Evaluation protocol.** `modeling/evaluate.py` reports, in order, **AUROC**
-(threshold-independent — the honest metric on ~87%-positive CBIS), the
-**operating point** that maximizes specificity subject to WORTH sensitivity
-≥ 0.80, and **calibration** (Brier + ECE, plus a reliability diagram when
-`output_dir` is set). It still enforces the 0.80 sensitivity floor and prints
-the confusion matrix at a reference threshold.
+## Known limitations
 
-## Getting the RSNA dataset
+An October 2026 audit of the data pipeline found issues that cap the current model. The planned redesign targets them:
 
-RSNA Screening Mammography Breast Cancer Detection (Kaggle 2022) lives at `gs://b2-foundation/second-look/RSNA/rsna-breast-cancer-detection/`. Layout:
+- **Label meaning differs across datasets.** CBIS counts biopsied *benign* lesions as positive, while RSNA labels them negative and VinDr uses BI-RADS 4–5.
+- **CBIS split leakage.** A small number of CBIS patients and images appear in both the official train and test sets.
+- **Heavy downsampling.** Full-resolution mammograms are squashed to 224×224, a 13–23× reduction that also distorts the aspect ratio. Fine calcifications can be lost.
+- **Quality-gate side effect.** Images that fail the quality gate become blank inputs but keep their label (about 6% of RSNA and 12% of VinDr).
+- **Optimistic operating point.** The 80%-sensitivity threshold is currently chosen on the test set and scored per image, not per breast. AUROC is not affected.
+- **No on-device build yet.** The TF Lite conversion has not been done.
 
-- `train.csv` — labels (`cancer` 0/1) and metadata for 54,706 images across 11,913 patients.
-- `train_images/{patient_id}/{image_id}.png` — pre-converted PNGs.
-- `test.csv` and `test_images/` — Kaggle's hidden competition split, no labels. Ignored by the build script.
+## Roadmap
 
-Because the test labels are unavailable, the build uses a patient-grouped, stratified 70/15/15 split on the labeled train set. All images from one patient (typically 4: L-CC, L-MLO, R-CC, R-MLO) stay in the same partition, so no patient leaks across train/val/test. RSNA labels are per-breast — a patient with unilateral cancer contributes both a positive and a negative image, both landing in the same split. The auth setup is identical to CBIS (ADC).
+- [x] Data pipeline for CBIS-DDSM, RSNA, and VinDr-Mammo
+- [x] Locked evaluation protocol (AUROC, macro-F1, operating point, calibration)
+- [x] Full-scale training on Vertex AI with a sweep harness
+- [x] Calibration with temperature scaling
+- [ ] Consistent label definitions across datasets, and a leakage-free CBIS split
+- [ ] Use the region annotations the datasets already provide (VinDr boxes, CBIS masks)
+- [ ] Combine the four views of an exam (L/R × CC/MLO) per breast before deciding
+- [ ] Higher input resolution, if it stays within the on-device budget
+- [ ] Choose the threshold on validation data; set the concern tiers from calibrated probabilities
+- [ ] TF Lite export, with on-device size and latency measurements
+- [ ] Dataset cards and license documentation
 
-Full RSNA build:
+## Getting started
 
 ```bash
-python scripts/build_dataset.py --use-gcs --datasets rsna --cache-dir data/cache
+git clone git@github.com:benevolentbandwidth/secondlook.git
+cd secondlook
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+pytest tests/ -v                                     # data-dependent tests skip cleanly
 ```
 
-Small smoke test (~100 images):
+Building the datasets needs read access to the project's GCS bucket. See **[INSTRUCTIONS.md](INSTRUCTIONS.md)** for authentication, dataset builds, Vertex AI training, sweeps, and the evaluation protocol.
 
-```bash
-python scripts/build_dataset.py --use-gcs --datasets rsna --cache-dir data/cache --limit 100
+## Repository structure
+
+```
+secondlook/
+├── config/           # constants (input size, seed, split ratios), label maps, GCS sources
+├── data_pipeline/    # retriever, manifest builder, splitter, label mapper,
+│                     # preprocessor, quality gate, augmentations
+├── modeling/         # MobileNetV2 classifier, training (incl. two-phase), losses,
+│                     # dataset-mix rebalancing, calibration, evaluation
+├── scripts/          # build_dataset.py, train_vertex.py, sweep_vertex.py
+├── vertex/           # Vertex AI job configs (full run, subset, seeds, resolution)
+├── demos/            # pipeline diagram, preprocessing and augmentation grids, notebooks
+└── tests/            # unit, mocked-GCS, and data-gated smoke tests
 ```
 
-All datasets at once:
+## Acknowledgements
 
-```bash
-python scripts/build_dataset.py --use-gcs --datasets cbis rsna vindr --cache-dir data/cache
-```
+This work uses the following public datasets. Each has its own license and terms of use:
 
-The image manifest gains an `image_id` column (CBIS rows leave it empty; RSNA and VinDr fill it with the PNG filename stem). The download report is split per-dataset: `image_download_report_cbis.csv`, `image_download_report_rsna.csv`, `image_download_report_vindr.csv`.
-
-## Getting the VinDr-Mammo dataset
-
-VinDr-Mammo (PhysioNet 1.0.0) lives at `gs://b2-foundation/second-look/VinDR/physionet.org/files/vindr-mammo/1.0.0/`. The bucket already holds pre-converted PNGs, so no DICOM dependency is needed. Layout:
-
-- `breast-level_annotations.csv` — labels (`breast_birads` strings like `"BI-RADS 4"`) and metadata for 20,000 images across 5,000 studies (one study per patient, four images per study: L-CC, L-MLO, R-CC, R-MLO). Also publishes an official `split` column with values `training` and `test`.
-- `images/{study_id}/{image_id}.png` — pre-converted PNGs.
-- `finding_annotations.csv` — finding-level bounding boxes. Not consumed by the binary pipeline; the build script reads `breast-level_annotations.csv` only.
-
-**Label mapping.** `breast_birads` values span `BI-RADS 1` through `BI-RADS 5` (no 0, no 6). The retriever parses the string into the integer N before mapping. BI-RADS 4 and 5 map to `WORTH_SECOND_LOOK` (1); BI-RADS 1–3 map to `NOT_WORTH_SECOND_LOOK` (0). Configured in `config/label_maps.yaml`.
-
-**Split.** VinDr's official train/test boundary is honored via `official_split_train_val`. Val is carved out of train at 15% **grouped by `patient_id`** (= `study_id`) so a single study's four images cannot straddle the train/val line. Empirically, every VinDr study has uniform BI-RADS across all four images (L/R and CC/MLO match), so the per-breast / per-image distinction does not introduce asymmetric labels the way RSNA does. The auth setup is identical to CBIS (ADC).
-
-Full VinDr build:
-
-```bash
-python scripts/build_dataset.py --use-gcs --datasets vindr --cache-dir data/cache
-```
-
-Small smoke test (~100 images):
-
-```bash
-python scripts/build_dataset.py --use-gcs --datasets vindr --cache-dir data/cache --limit 100
-```
-
-### Useful flags
-
-- `--no-official-split` falls back to a stratified 70/15/15 split if you do not want CBIS's canonical split.
-- `--skip-image-download` builds the manifest without pulling images. Handy for inspecting splits and label distributions.
-- `--max-workers N` controls the concurrent download pool (default 8).
-- `--dry-run` prints the resolved source configuration and exits.
+- **CBIS-DDSM:** Lee, R. S. et al., *A curated mammography data set for use in computer-aided detection and diagnosis research*, Scientific Data (2017). Hosted by The Cancer Imaging Archive.
+- **RSNA Screening Mammography Breast Cancer Detection:** Radiological Society of North America, Kaggle (2022).
+- **VinDr-Mammo:** Nguyen, H. T. et al., *VinDr-Mammo: A large-scale benchmark dataset for computer-aided diagnosis in full-field digital mammography*, Scientific Data (2023). Hosted on PhysioNet.
+- **INbreast:** Moreira, I. C. et al., Academic Radiology (2012).
