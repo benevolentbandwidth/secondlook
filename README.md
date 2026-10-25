@@ -10,7 +10,7 @@
 ![Training](https://img.shields.io/badge/training-Vertex%20AI-4285F4?logo=googlecloud&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-71%20passed-brightgreen)
 
-[Overview](#overview) · [How it works](#how-it-works) · [Results](#results) · [What we learned](#what-we-learned) · [Limitations](#known-limitations) · [Roadmap](#roadmap) · [Getting started](#getting-started)
+[Overview](#overview) · [How it works](#how-it-works) · [Mobile apps](#6-mobile-apps) · [Results](#results) · [What we learned](#what-we-learned) · [Limitations](#known-limitations) · [Roadmap](#roadmap) · [Getting started](#getting-started)
 
 </div>
 
@@ -26,7 +26,7 @@ Breast cancer screening relies on radiologists reading large numbers of mammogra
 The design has three commitments:
 
 - **Binary, not diagnostic.** The model outputs one probability: `WORTH_SECOND_LOOK` vs `NOT_WORTH_SECOND_LOOK`. It does not diagnose cancer. A separate UX layer turns the calibrated probability into a coarse concern tier: **Low / Moderate / Elevated**.
-- **On-device and private.** The target is a TensorFlow Lite model that runs in a phone or browser and stores and transmits nothing. Every architecture choice (MobileNetV2, 224×224 input, no custom ops) is made to keep that path open.
+- **On-device and private.** The model ships as TensorFlow Lite inside [iOS and Android apps](#mobile-apps) that run it locally and store and transmit nothing. Every architecture choice (MobileNetV2, 224×224 input, no custom ops) is made to keep that path open.
 - **Missing a case is the worst failure.** The project optimizes for sensitivity on the positive class, with a hard floor of **80% sensitivity**. False alarms are preferred over false reassurance.
 
 ## How it works
@@ -92,6 +92,17 @@ Accuracy is misleading on this data: a model that flags every CBIS image scores 
 
 Training runs as Google **Vertex AI** custom jobs on an NVIDIA T4, in the same region as the data bucket. One job downloads the ~178 GB dataset **once**, then trains and evaluates a whole sweep of configurations against the same splits. Each config writes its own checkpoint, calibration file, and a row in a ranked summary. Preprocessed images are cached in memory after the first epoch. Together with the GPU, that turned a projected ~3-day CPU run into ~10 hours.
 
+### 6. Mobile apps
+
+The [`frontend/`](frontend/) folder holds native apps that run the whole flow on the phone: a disclaimer gate, then capture or select an image, then a result with a probability and a Low / Moderate / Elevated tier. Nothing is uploaded.
+
+| App | Stack | Preprocessing |
+|---|---|---|
+| [iOS](frontend/README.md) | SwiftUI, TensorFlow Lite (CocoaPods) | OpenCV port of the Python pipeline (Objective-C++) |
+| [Android](frontend/android/README.md) | Jetpack Compose, TensorFlow Lite | The research pipeline's own Python code, run on-device through Chaquopy |
+
+Both apps bundle a ~4.4 MB `second_look.tflite` that takes a 224×224×1 input. The tier cut-points in the apps are still provisional.
+
 ## Results
 
 All numbers below are on the **full combined test set: 12,558 images, 738 positives (5.9%)**, which is a realistic screening distribution.
@@ -147,7 +158,7 @@ An October 2026 audit of the data pipeline found issues that cap the current mod
 - **Heavy downsampling.** Full-resolution mammograms are squashed to 224×224, a 13–23× reduction that also distorts the aspect ratio. Fine calcifications can be lost.
 - **Quality-gate side effect.** Images that fail the quality gate become blank inputs but keep their label (about 6% of RSNA and 12% of VinDr).
 - **Optimistic operating point.** The 80%-sensitivity threshold is currently chosen on the test set and scored per image, not per breast. AUROC is not affected.
-- **No on-device build yet.** The TF Lite conversion has not been done.
+- **No export step in the training code.** The apps' `.tflite` is produced outside this pipeline, so there is no script yet that turns a training checkpoint into the bundled model.
 
 ## Roadmap
 
@@ -155,12 +166,13 @@ An October 2026 audit of the data pipeline found issues that cap the current mod
 - [x] Locked evaluation protocol (AUROC, macro-F1, operating point, calibration)
 - [x] Full-scale training on Vertex AI with a sweep harness
 - [x] Calibration with temperature scaling
+- [x] iOS and Android apps running a TF Lite model on-device
 - [ ] Consistent label definitions across datasets, and a leakage-free CBIS split
 - [ ] Use the region annotations the datasets already provide (VinDr boxes, CBIS masks)
 - [ ] Combine the four views of an exam (L/R × CC/MLO) per breast before deciding
 - [ ] Higher input resolution, if it stays within the on-device budget
 - [ ] Choose the threshold on validation data; set the concern tiers from calibrated probabilities
-- [ ] TF Lite export, with on-device size and latency measurements
+- [ ] Reproducible TF Lite export from the training pipeline, with on-device size and latency measurements
 - [ ] Dataset cards and license documentation
 
 ## Getting started
@@ -187,6 +199,7 @@ secondlook/
 ├── scripts/          # build_dataset.py, train_vertex.py, sweep_vertex.py
 ├── vertex/           # Vertex AI job configs (full run, subset, seeds, resolution)
 ├── demos/            # pipeline diagram, preprocessing and augmentation grids, notebooks
+├── frontend/         # on-device apps: iOS (Xcode project at this level) and android/
 └── tests/            # unit, mocked-GCS, and data-gated smoke tests
 ```
 
